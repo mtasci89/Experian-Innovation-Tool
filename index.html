@@ -1,0 +1,3450 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Innovation Tool</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+<div id="root"></div>
+
+<script>
+  const uuid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const now  = () => new Date().toISOString();
+
+  const AUTH_KEY    = 'innovation-tool-auth';
+  const SESSION_KEY = 'innovation-tool-session';
+  const STORAGE_KEY = 'innovation-tool-v3'; // localStorage migration
+
+  // ── Firebase ──────────────────────────────────────────────────────────
+  const firebaseConfig = {
+    apiKey: "AIzaSyCElqzY1j_r7zIOJVDLl1WeKifFKcnuVEg",
+    authDomain: "innovation-tool-1eb65.firebaseapp.com",
+    databaseURL: "https://innovation-tool-1eb65-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "innovation-tool-1eb65",
+    storageBucket: "innovation-tool-1eb65.firebasestorage.app",
+    messagingSenderId: "377015243493",
+    appId: "1:377015243493:web:8aad20be5fffd734f8ba0c",
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  const DEFAULT_STAGES = [
+    { id: 'problem',    name: 'Problem',      color: '#3B82F6', order: 0 },
+    { id: 'solution',   name: 'Solution',     color: '#8B5CF6', order: 1 },
+    { id: 'feedback',   name: 'Feedback',     color: '#F59E0B', order: 2 },
+    { id: 'test-learn', name: 'Test & Learn', color: '#F97316', order: 3 },
+    { id: 'pilot',      name: 'Pilot',        color: '#10B981', order: 4 },
+    { id: 'scale',      name: 'Scale',        color: '#059669', order: 5 },
+  ];
+
+  const DEFAULT_CANVAS_TEMPLATES = [
+    {
+      id: 'experian', name: 'Experian Business Canvas',
+      sections: [
+        { id: 'jtbd',               name: 'JTBD' },
+        { id: 'problem-solution',   name: 'Problem & Solution' },
+        { id: 'business-partners',  name: 'Business Partners' },
+        { id: 'data-partners',      name: 'Data Partners' },
+        { id: 'user-journey',       name: 'User Journey', type: 'journey' },
+        { id: 'market-size',       name: 'Market Size' },
+        { id: 'experian-strategy', name: 'Experian Strategy Relevance' },
+        { id: 'northstar',         name: 'Northstar Feature' },
+        { id: 'monetization',      name: 'Monetization' },
+      ]
+    },
+    {
+      id: 'bmc', name: 'Business Model Canvas',
+      sections: [
+        { id: 'key-partners',    name: 'Key Partners' },
+        { id: 'key-activities',  name: 'Key Activities' },
+        { id: 'value-props',     name: 'Value Propositions' },
+        { id: 'customer-rel',    name: 'Customer Relationships' },
+        { id: 'customer-seg',    name: 'Customer Segments' },
+        { id: 'key-resources',   name: 'Key Resources' },
+        { id: 'channels',        name: 'Channels' },
+        { id: 'cost-structure',  name: 'Cost Structure' },
+        { id: 'revenue-streams', name: 'Revenue Streams' },
+      ]
+    },
+    {
+      id: 'lean', name: 'Lean Canvas',
+      sections: [
+        { id: 'problem',      name: 'Problem' },
+        { id: 'solution',     name: 'Solution' },
+        { id: 'uvp',          name: 'Unique Value Proposition' },
+        { id: 'unfair-adv',   name: 'Unfair Advantage' },
+        { id: 'metrics',      name: 'Key Metrics' },
+        { id: 'channels',     name: 'Channels' },
+        { id: 'customer-seg', name: 'Customer Segments' },
+        { id: 'cost-struct',  name: 'Cost Structure' },
+        { id: 'revenue',      name: 'Revenue Streams' },
+      ]
+    },
+  ];
+
+  const getInitialState = () =>
+    ({ stages: DEFAULT_STAGES, ideas: [], canvasTemplates: DEFAULT_CANVAS_TEMPLATES, tagLibrary: [] });
+
+  // Throttled history pruning — runs at most once per minute per browser
+  let __lastHistoryPrune = 0;
+  const pruneHistory = () => {
+    const now = Date.now();
+    if (now - __lastHistoryPrune < 60_000) return;
+    __lastHistoryPrune = now;
+    try {
+      db.ref('appData_history').once('value', snap => {
+        const all = snap.val() || {};
+        const keys = Object.keys(all).sort(); // push() keys are chronologically sortable
+        const KEEP = 100;
+        if (keys.length > KEEP) {
+          const toDel = keys.slice(0, keys.length - KEEP);
+          toDel.forEach(k => db.ref('appData_history/' + k).remove());
+        }
+      });
+    } catch(e) {}
+  };
+
+  const saveState = (s) => {
+    const stamped = { ...s, updatedAt: Date.now() };
+    try { db.ref('appData').set(stamped); } catch (e) {}
+    // Append immutable snapshot to history so we can roll back
+    try {
+      db.ref('appData_history').push({ at: Date.now(), data: stamped });
+      pruneHistory();
+    } catch (e) {}
+    // Daily rolling localStorage backup (keeps last 7 days)
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const key = 'innovation-tool-backup-' + today;
+      if (!localStorage.getItem(key)) {
+        localStorage.setItem(key, JSON.stringify(stamped));
+        // prune backups older than 7 days
+        const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        Object.keys(localStorage).forEach(k => {
+          if (k.startsWith('innovation-tool-backup-')) {
+            const d = k.slice('innovation-tool-backup-'.length);
+            const t = Date.parse(d);
+            if (!isNaN(t) && t < cutoff) localStorage.removeItem(k);
+          }
+        });
+      }
+    } catch (e) {}
+  };
+
+  // ── Auth helpers ──────────────────────────────────────────────────────
+  const getAuthConfig = () => {
+    try {
+      const s = localStorage.getItem(AUTH_KEY);
+      return s ? JSON.parse(s) : { enabled: false, adminPass: '', viewerPass: '' };
+    } catch { return { enabled: false, adminPass: '', viewerPass: '' }; }
+  };
+
+  const saveAuthConfig = (cfg) => {
+    localStorage.setItem(AUTH_KEY, JSON.stringify(cfg));
+  };
+
+  const getSession = () => {
+    try {
+      const s = sessionStorage.getItem(SESSION_KEY);
+      return s ? JSON.parse(s) : null;
+    } catch { return null; }
+  };
+
+  const setSession = (role) => {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ role }));
+  };
+
+  const clearSession = () => sessionStorage.removeItem(SESSION_KEY);
+</script>
+
+<script type="text/babel">
+const {
+  useState, useEffect, useReducer, useContext, createContext,
+  useCallback, useRef,
+} = React;
+
+const Ctx = createContext(null);
+
+// ── Reducer ────────────────────────────────────────────────────────────
+// Firebase strips null, converts arrays to objects with numeric keys, drops empty arrays.
+// This normalizes the data back to the shape the app expects.
+function normalizeFirebaseData(data) {
+  const toArr = v => {
+    if (Array.isArray(v)) return v.filter(x => x != null);
+    if (v && typeof v === 'object') return Object.values(v).filter(x => x != null);
+    return [];
+  };
+  const safeObj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+
+  if (!data) return { stages: DEFAULT_STAGES, ideas: [], canvasTemplates: DEFAULT_CANVAS_TEMPLATES, tagLibrary: [] };
+
+  return {
+    stages: toArr(data.stages).length ? toArr(data.stages) : DEFAULT_STAGES,
+    tagLibrary: toArr(data.tagLibrary).filter(t => typeof t === 'string'),
+    ideas: toArr(data.ideas).map(idea => ({
+      ...idea,
+      tags: toArr(idea.tags),
+      canvases: toArr(idea.canvases).map(c => ({
+        ...c,
+        sections: toArr(c.sections).map(sec => {
+          // Auto-upgrade: any section named "User Journey" becomes a journey flow section
+          const isUserJourney = typeof sec.name === 'string' &&
+            sec.name.trim().toLowerCase() === 'user journey';
+          if (isUserJourney && sec.type !== 'journey') {
+            return { ...sec, type: 'journey', steps: toArr(sec.steps) };
+          }
+          if (sec.type === 'journey') {
+            return { ...sec, steps: toArr(sec.steps) };
+          }
+          return sec;
+        }),
+      })),
+      stageData: Object.fromEntries(
+        Object.entries(safeObj(idea.stageData)).map(([k, v]) => [k, {
+          notes: toArr(v && v.notes),
+          evaluation: (v && v.evaluation) || null,
+        }])
+      ),
+    })),
+    canvasTemplates: (() => {
+      const saved = toArr(data.canvasTemplates)
+        .map(t => ({ ...t, sections: toArr(t.sections) }))
+        .map(t => {
+          // One-time migration: rename Partners → Business Partners and add Data Partners
+          // in the Experian template, if not already done.
+          if (t.id !== 'experian') return t;
+          const secIds = new Set(t.sections.map(s => s.id));
+          if (secIds.has('partners') && !secIds.has('business-partners') && !secIds.has('data-partners')) {
+            const newSecs = [];
+            t.sections.forEach(s => {
+              if (s.id === 'partners') {
+                newSecs.push({ ...s, id: 'business-partners', name: 'Business Partners' });
+                newSecs.push({ id: 'data-partners', name: 'Data Partners' });
+              } else {
+                newSecs.push(s);
+              }
+            });
+            return { ...t, sections: newSecs };
+          }
+          return t;
+        });
+      if (saved.length === 0) return DEFAULT_CANVAS_TEMPLATES;
+      // Merge: add any default template that's missing from saved (so new defaults
+      // like "Experian Business Canvas" show up for existing installs).
+      const savedIds = new Set(saved.map(t => t.id));
+      const missing = DEFAULT_CANVAS_TEMPLATES.filter(t => !savedIds.has(t.id));
+      return missing.length ? [...missing, ...saved] : saved;
+    })(),
+  };
+}
+
+function reducer(state, action) {
+  if (action.type === 'SYNC_FROM_FIREBASE') {
+    const normalized = normalizeFirebaseData(action.data);
+    if (JSON.stringify(state) === JSON.stringify(normalized)) return state;
+    return normalized;
+  }
+  let s;
+  switch (action.type) {
+
+    case 'ADD_IDEA': {
+      const idea = {
+        id: uuid(),
+        title: action.title || 'Yeni Fikir',
+        tagline: action.tagline || '',
+        description: '',
+        stageId: action.stageId,
+        createdAt: now(), updatedAt: now(),
+        owner: '', tags: [], stageData: {}, canvases: [],
+      };
+      s = { ...state, ideas: [...state.ideas, idea] };
+      break;
+    }
+
+    case 'UPDATE_IDEA':
+      s = {
+        ...state,
+        ideas: state.ideas.map(i =>
+          i.id === action.id ? { ...i, ...action.updates, updatedAt: now() } : i
+        ),
+      };
+      break;
+
+    case 'MOVE_IDEA':
+      s = {
+        ...state,
+        ideas: state.ideas.map(i =>
+          i.id === action.id ? { ...i, stageId: action.stageId, updatedAt: now() } : i
+        ),
+      };
+      break;
+
+    case 'DELETE_IDEA':
+      s = { ...state, ideas: state.ideas.filter(i => i.id !== action.id) };
+      break;
+
+    case 'ADD_NOTE': {
+      s = {
+        ...state,
+        ideas: state.ideas.map(idea => {
+          if (idea.id !== action.ideaId) return idea;
+          const sd = idea.stageData[action.stageId] || { notes: [], evaluation: null };
+          return {
+            ...idea, updatedAt: now(),
+            stageData: {
+              ...idea.stageData,
+              [action.stageId]: {
+                ...sd,
+                notes: [...(sd.notes || []), {
+                  id: uuid(),
+                  content: action.content || '',
+                  type: action.noteType || 'text',
+                  file: action.file || null,
+                  createdAt: now(),
+                }],
+              },
+            },
+          };
+        }),
+      };
+      break;
+    }
+
+    case 'UPDATE_NOTE':
+      s = {
+        ...state,
+        ideas: state.ideas.map(idea => {
+          if (idea.id !== action.ideaId) return idea;
+          const sd = idea.stageData[action.stageId] || { notes: [] };
+          return {
+            ...idea, updatedAt: now(),
+            stageData: {
+              ...idea.stageData,
+              [action.stageId]: {
+                ...sd,
+                notes: (sd.notes || []).map(n =>
+                  n.id === action.noteId ? { ...n, content: action.content } : n
+                ),
+              },
+            },
+          };
+        }),
+      };
+      break;
+
+    case 'DELETE_NOTE':
+      s = {
+        ...state,
+        ideas: state.ideas.map(idea => {
+          if (idea.id !== action.ideaId) return idea;
+          const sd = idea.stageData[action.stageId] || { notes: [] };
+          return {
+            ...idea, updatedAt: now(),
+            stageData: {
+              ...idea.stageData,
+              [action.stageId]: { ...sd, notes: (sd.notes || []).filter(n => n.id !== action.noteId) },
+            },
+          };
+        }),
+      };
+      break;
+
+    case 'SET_EVALUATION':
+      s = {
+        ...state,
+        ideas: state.ideas.map(idea => {
+          if (idea.id !== action.ideaId) return idea;
+          const sd = idea.stageData[action.stageId] || { notes: [] };
+          return {
+            ...idea, updatedAt: now(),
+            stageData: {
+              ...idea.stageData,
+              [action.stageId]: { ...sd, evaluation: { ...action.evaluation, evaluatedAt: now() } },
+            },
+          };
+        }),
+      };
+      break;
+
+    case 'ADD_CANVAS': {
+      const tmpl = action.templateId
+        ? state.canvasTemplates.find(t => t.id === action.templateId)
+        : null;
+      const contentMap = action.contentMap || {};
+      const nk = s => (s || '').toLowerCase().replace(/[^a-z0-9ğüşöçı]+/gi, '');
+      const canvas = {
+        id: uuid(),
+        name: action.name || (tmpl ? tmpl.name : 'Yeni Canvas'),
+        sections: tmpl
+          ? tmpl.sections.map(sec => ({ ...sec, id: uuid(), content: contentMap[nk(sec.name)] || contentMap[sec.name] || '' }))
+          : [{ id: uuid(), name: 'Bölüm 1', content: '' }],
+        createdAt: now(),
+      };
+      s = {
+        ...state,
+        ideas: state.ideas.map(i =>
+          i.id === action.ideaId
+            ? { ...i, canvases: [...(i.canvases || []), canvas], updatedAt: now() }
+            : i
+        ),
+      };
+      break;
+    }
+
+    case 'UPDATE_CANVAS':
+      s = {
+        ...state,
+        ideas: state.ideas.map(i =>
+          i.id !== action.ideaId ? i : {
+            ...i, updatedAt: now(),
+            canvases: (i.canvases || []).map(c =>
+              c.id === action.canvasId ? { ...c, ...action.updates } : c
+            ),
+          }
+        ),
+      };
+      break;
+
+    case 'DELETE_CANVAS':
+      s = {
+        ...state,
+        ideas: state.ideas.map(i =>
+          i.id !== action.ideaId ? i : {
+            ...i, updatedAt: now(),
+            canvases: (i.canvases || []).filter(c => c.id !== action.canvasId),
+          }
+        ),
+      };
+      break;
+
+    case 'ADD_STAGE': {
+      const stage = { id: uuid(), name: action.name, color: action.color || '#6B7280', order: state.stages.length };
+      s = { ...state, stages: [...state.stages, stage] };
+      break;
+    }
+
+    case 'UPDATE_STAGE':
+      s = {
+        ...state,
+        stages: state.stages.map(st => st.id === action.id ? { ...st, ...action.updates } : st),
+      };
+      break;
+
+    case 'REORDER_STAGES':
+      s = { ...state, stages: action.stages.map((st, i) => ({ ...st, order: i })) };
+      break;
+
+    case 'SET_TAG_LIBRARY':
+      s = { ...state, tagLibrary: action.tags };
+      break;
+
+    case 'SET_CANVAS_TEMPLATES':
+      s = { ...state, canvasTemplates: action.templates };
+      break;
+
+    case 'DELETE_STAGE': {
+      const fallback = state.stages.find(st => st.id !== action.id)?.id || state.stages[0]?.id;
+      s = {
+        ...state,
+        stages: state.stages.filter(st => st.id !== action.id),
+        ideas: state.ideas.map(i => i.stageId === action.id ? { ...i, stageId: fallback } : i),
+      };
+      break;
+    }
+
+    default: return state;
+  }
+  saveState(s);
+  return s;
+}
+
+// ── Shared UI ──────────────────────────────────────────────────────────
+const PALETTE = [
+  '#3B82F6','#8B5CF6','#EC4899','#F59E0B','#F97316',
+  '#10B981','#059669','#06B6D4','#6366F1','#EF4444','#64748B',
+];
+
+function ColorPicker({ value, onChange }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {PALETTE.map(c => (
+        <button key={c} onClick={() => onChange(c)}
+          className={`w-7 h-7 rounded-full border-2 transition-transform hover:scale-110 ${
+            value === c ? 'border-slate-800 scale-110' : 'border-white shadow'
+          }`}
+          style={{ background: c }} />
+      ))}
+    </div>
+  );
+}
+
+// Auto-grow textarea: expands to fit content (no scrollbar, no clipping).
+function AutoGrowTextarea({ value, onChange, readOnly, placeholder, className, minRows = 3 }) {
+  const ref = useRef(null);
+  const resize = () => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  };
+  useEffect(() => { resize(); }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      value={value || ''}
+      rows={minRows}
+      onChange={e => { onChange && onChange(e); resize(); }}
+      onInput={resize}
+      readOnly={readOnly}
+      placeholder={placeholder}
+      className={className}
+      style={{ overflow: 'hidden' }}
+    />
+  );
+}
+
+function TagInput({ tags, onChange }) {
+  const [val, setVal] = useState('');
+  const add = e => {
+    if ((e.key === 'Enter' || e.key === ',') && val.trim()) {
+      e.preventDefault();
+      if (!tags.includes(val.trim())) onChange([...tags, val.trim()]);
+      setVal('');
+    }
+  };
+  return (
+    <div className="flex flex-wrap gap-1 p-2 border border-slate-200 rounded-lg min-h-[38px]">
+      {tags.map(t => (
+        <span key={t} className="flex items-center gap-1 bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded-full">
+          {t}
+          <button onClick={() => onChange(tags.filter(x => x !== t))} className="hover:text-red-500 leading-none">&times;</button>
+        </span>
+      ))}
+      <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={add}
+        placeholder="Tag ekle + Enter"
+        className="outline-none text-sm flex-1 min-w-[100px] bg-transparent" />
+    </div>
+  );
+}
+
+function Modal({ isOpen, onClose, title, children, size = 'lg' }) {
+  useEffect(() => {
+    const h = e => { if (e.key === 'Escape' && onClose) onClose(); };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, [onClose]);
+  if (!isOpen) return null;
+  const W = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl', xl: 'max-w-6xl' }[size] || 'max-w-3xl';
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-6 pb-6 px-4 overflow-y-auto"
+         style={{ background: 'rgba(15,23,42,0.6)' }}
+         onClick={e => e.target === e.currentTarget && onClose && onClose()}>
+      <div className={`bg-white rounded-2xl shadow-2xl w-full ${W} my-auto`}>
+        {title != null && (
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+            <h2 className="text-base font-semibold text-slate-800">{title}</h2>
+            {onClose && <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>}
+          </div>
+        )}
+        <div className="overflow-y-auto" style={{ maxHeight: '88vh' }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Notes panel ────────────────────────────────────────────────────────
+const NOTE_TYPES = [
+  { id: 'text',               label: 'Not',                    icon: '📝' },
+  { id: 'customer-feedback',  label: 'Müşteri Geri Bildirimi', icon: '💬' },
+  { id: 'potential-customer', label: 'Potansiyel Müşteri',     icon: '👥' },
+  { id: 'mvp',                label: 'MVP Süreci',             icon: '🚀' },
+  { id: 'mvp-feedback',       label: 'MVP Geri Bildirimi',     icon: '🔄' },
+  { id: 'feasibility',        label: 'Fizibilite',             icon: '📊' },
+  { id: 'link',               label: 'Link / Dosya',           icon: '🔗' },
+];
+
+const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MB
+
+function FileAttachmentDisplay({ file, onDelete, canEdit }) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  const isImage = ['jpg','jpeg','png','gif','webp','svg'].includes(ext);
+
+  const download = () => {
+    const a = document.createElement('a');
+    a.href = file.dataUrl;
+    a.download = file.name;
+    a.click();
+  };
+
+  return (
+    <div className="border border-slate-200 rounded-xl p-3 bg-white flex items-start gap-3 mt-2">
+      {isImage ? (
+        <img src={file.dataUrl} alt={file.name}
+          className="w-16 h-16 object-cover rounded-lg flex-shrink-0 border border-slate-100" />
+      ) : (
+        <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0">
+          <span className="text-2xl">📎</span>
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
+        <p className="text-xs text-slate-400">{(file.size / 1024).toFixed(1)} KB</p>
+      </div>
+      <div className="flex gap-1 flex-shrink-0">
+        <button onClick={download}
+          className="text-xs px-2.5 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 font-medium">
+          İndir
+        </button>
+        {canEdit && onDelete && (
+          <button onClick={onDelete}
+            className="text-xs px-2.5 py-1.5 bg-red-50 text-red-500 rounded-lg hover:bg-red-100">
+            Sil
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NotesPanel({ idea, stageId, canEdit }) {
+  const { dispatch } = useContext(Ctx);
+  const [newNote, setNewNote] = useState('');
+  const [noteType, setNoteType] = useState('text');
+  const [pendingFile, setPendingFile] = useState(null);
+  const [fileError, setFileError] = useState('');
+  const [editId, setEditId] = useState(null);
+  const [editContent, setEditContent] = useState('');
+  const fileRef = useRef();
+
+  const notes = idea.stageData?.[stageId]?.notes || [];
+  const typeOf = id => NOTE_TYPES.find(t => t.id === id) || NOTE_TYPES[0];
+
+  const handleFileSelect = e => {
+    setFileError('');
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > MAX_FILE_BYTES) {
+      setFileError(`Dosya 2MB'den büyük olamaz (seçilen: ${(file.size/1024/1024).toFixed(1)}MB)`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      setPendingFile({ name: file.name, dataUrl: ev.target.result, size: file.size, mimeType: file.type });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const add = () => {
+    if (!newNote.trim() && !pendingFile) return;
+    dispatch({
+      type: 'ADD_NOTE', ideaId: idea.id, stageId,
+      content: newNote.trim(),
+      noteType,
+      file: pendingFile || null,
+    });
+    setNewNote(''); setPendingFile(null); setFileError('');
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  return (
+    <div>
+      {canEdit && (
+        <div className="mb-5 space-y-2">
+          <div className="flex gap-2">
+            <select value={noteType} onChange={e => { setNoteType(e.target.value); setPendingFile(null); }}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+              {NOTE_TYPES.map(t => <option key={t.id} value={t.id}>{t.icon} {t.label}</option>)}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            {noteType === 'link' ? (
+              <input value={newNote} onChange={e => setNewNote(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); add(); } }}
+                placeholder="URL veya açıklama…"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-indigo-300" />
+            ) : (
+              <textarea value={newNote} onChange={e => setNewNote(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); add(); } }}
+                placeholder="Not ekleyin… (Enter kaydet, Shift+Enter satır sonu)"
+                rows={3}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:border-indigo-300" />
+            )}
+            <div className="flex items-center gap-2">
+              <label className="cursor-pointer flex items-center gap-2 px-3 py-2 border border-dashed border-slate-300 rounded-xl hover:border-indigo-400 hover:bg-indigo-50 transition-colors text-sm text-slate-600">
+                <span>📎 Dosya Ekle</span>
+                <input ref={fileRef} type="file" className="hidden" onChange={handleFileSelect} />
+              </label>
+              {pendingFile && (
+                <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2 text-sm text-green-700 flex-1">
+                  <span>✅ {pendingFile.name}</span>
+                  <button onClick={() => { setPendingFile(null); if(fileRef.current) fileRef.current.value=''; }}
+                    className="ml-auto text-green-500 hover:text-red-500">&times;</button>
+                </div>
+              )}
+            </div>
+            {fileError && <p className="text-xs text-red-500">{fileError}</p>}
+          </div>
+
+          <div className="flex justify-end">
+            <button onClick={add}
+              className="px-5 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700">
+              Ekle
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {notes.length === 0 && (
+          <p className="text-center py-10 text-slate-400 text-sm">Bu adım için henüz not eklenmemiş</p>
+        )}
+        {notes.map(note => {
+          const t = typeOf(note.type);
+          return (
+            <div key={note.id}
+              className="bg-slate-50 rounded-xl p-4 border border-slate-200 group hover:border-slate-300 transition-colors">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span>{t.icon}</span>
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{t.label}</span>
+                  <span className="text-xs text-slate-400">{new Date(note.createdAt).toLocaleDateString('tr-TR')}</span>
+                </div>
+                {canEdit && (
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {!note.file && (
+                      <button onClick={() => { setEditId(note.id); setEditContent(note.content); }}
+                        className="text-xs px-2 py-1 bg-white border border-slate-200 rounded-lg hover:border-indigo-300 text-slate-600">
+                        Düzenle
+                      </button>
+                    )}
+                    <button onClick={() => dispatch({ type: 'DELETE_NOTE', ideaId: idea.id, stageId, noteId: note.id })}
+                      className="text-xs px-2 py-1 bg-white border border-red-200 rounded-lg hover:bg-red-50 text-red-500">
+                      Sil
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {editId === note.id ? (
+                <div>
+                  <textarea value={editContent} onChange={e => setEditContent(e.target.value)} rows={3}
+                    className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none" />
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={() => {
+                      dispatch({ type: 'UPDATE_NOTE', ideaId: idea.id, stageId, noteId: note.id, content: editContent });
+                      setEditId(null);
+                    }} className="px-3 py-1 bg-indigo-600 text-white rounded-lg text-xs">Kaydet</button>
+                    <button onClick={() => setEditId(null)}
+                      className="px-3 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs">İptal</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {note.content && (
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap">{note.content}</p>
+                  )}
+                  {note.file && (
+                    <FileAttachmentDisplay
+                      file={note.file}
+                      canEdit={canEdit}
+                      onDelete={() => dispatch({ type: 'DELETE_NOTE', ideaId: idea.id, stageId, noteId: note.id })}
+                    />
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Journey flow (horizontal step boxes with arrows) ──────────────────
+function JourneyFlow({ steps, canEdit, onChange }) {
+  const list = Array.isArray(steps) ? steps : [];
+  const [dragId, setDragId] = useState(null);
+
+  const update = (id, patch) =>
+    onChange(list.map(s => s.id === id ? { ...s, ...patch } : s));
+  const remove = (id) => onChange(list.filter(s => s.id !== id));
+  const addStep = () =>
+    onChange([...list, { id: 'step-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), title: '', description: '' }]);
+  const reorder = (fromId, toId) => {
+    if (!fromId || !toId || fromId === toId) return;
+    const next = [...list];
+    const fi = next.findIndex(s => s.id === fromId);
+    const ti = next.findIndex(s => s.id === toId);
+    if (fi < 0 || ti < 0) return;
+    const [moved] = next.splice(fi, 1);
+    next.splice(ti, 0, moved);
+    onChange(next);
+  };
+
+  if (list.length === 0 && !canEdit) {
+    return <div className="text-sm text-slate-400 italic">Henüz adım eklenmemiş</div>;
+  }
+
+  return (
+    <div className="w-full">
+      <div className="flex flex-wrap items-stretch gap-2">
+        {list.map((step, idx) => (
+          <React.Fragment key={step.id}>
+            <div
+              draggable={canEdit}
+              onDragStart={canEdit ? (e) => { setDragId(step.id); e.dataTransfer.setData('journey-step', step.id); e.dataTransfer.effectAllowed = 'move'; } : undefined}
+              onDragOver={canEdit ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } : undefined}
+              onDrop={canEdit ? (e) => { e.preventDefault(); const from = e.dataTransfer.getData('journey-step') || dragId; reorder(from, step.id); setDragId(null); } : undefined}
+              onDragEnd={() => setDragId(null)}
+              className={`relative flex-1 min-w-[140px] max-w-[220px] bg-white border-2 border-indigo-200 rounded-lg p-2 shadow-sm ${canEdit ? 'cursor-move hover:border-indigo-400' : ''} ${dragId === step.id ? 'opacity-50' : ''}`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center">
+                  {idx + 1}
+                </span>
+                {canEdit && (
+                  <button onClick={() => remove(step.id)}
+                    className="text-slate-300 hover:text-red-500 text-sm leading-none">&times;</button>
+                )}
+              </div>
+              <input
+                value={step.title || ''}
+                onChange={e => canEdit && update(step.id, { title: e.target.value })}
+                readOnly={!canEdit}
+                placeholder={canEdit ? 'Adım başlığı' : '—'}
+                className="w-full text-sm font-semibold text-slate-800 outline-none bg-transparent mb-1"
+              />
+              <textarea
+                value={step.description || ''}
+                onChange={e => canEdit && update(step.id, { description: e.target.value })}
+                readOnly={!canEdit}
+                placeholder={canEdit ? 'Açıklama…' : ''}
+                rows={5}
+                className="w-full text-xs text-slate-600 outline-none bg-transparent resize-none"
+              />
+            </div>
+            {idx < list.length - 1 && (
+              <div className="flex items-center text-indigo-400 text-xl select-none">›</div>
+            )}
+          </React.Fragment>
+        ))}
+        {canEdit && (
+          <button onClick={addStep}
+            className="min-w-[100px] border-2 border-dashed border-indigo-200 text-indigo-500 rounded-lg hover:bg-indigo-50 hover:border-indigo-400 text-sm font-medium px-3 py-2">
+            + Adım
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Canvas importers (PPTX / DOCX) ─────────────────────────────────────
+const decodeXmlEntities = (s) =>
+  (s || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+           .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+
+// Heuristic: does text look like a slide footer / page number / confidentiality stamp?
+const isFooterText = (t) => {
+  if (!t) return false;
+  const trim = t.trim();
+  if (/\b(Gizli|Konsept|Confidential|Proprietary|©|Copyright|All rights reserved)\b/i.test(trim)) return true;
+  if (/^\d{4}$/.test(trim)) return true;             // year only
+  if (/^\d{1,3}$/.test(trim.replace(/\s+/g, ''))) return true; // page number
+  if (/^\d+\s*\/\s*\d+$/.test(trim)) return true;    // "3 / 10"
+  return false;
+};
+
+// Parse each shape/text-box as a block with {title, body, x, y, cx, cy}.
+// Handles canvas-style decks where every section is its own text box on a single slide.
+async function parsePptxSections(file) {
+  if (!window.JSZip) throw new Error('JSZip yüklenemedi, sayfayı yenileyin');
+  const zip = await window.JSZip.loadAsync(file);
+
+  // Read slide dimensions (EMUs) for footer / position filtering.
+  let slideCx = 12192000, slideCy = 6858000; // widescreen default
+  try {
+    const presFile = zip.file('ppt/presentation.xml');
+    if (presFile) {
+      const presXml = await presFile.async('text');
+      const sldSz = presXml.match(/<p:sldSz\s+cx="(\d+)"\s+cy="(\d+)"/);
+      if (sldSz) { slideCx = +sldSz[1]; slideCy = +sldSz[2]; }
+    }
+  } catch {}
+
+  const slideNames = Object.keys(zip.files)
+    .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a, b) => {
+      const ai = parseInt(a.match(/slide(\d+)/)[1], 10);
+      const bi = parseInt(b.match(/slide(\d+)/)[1], 10);
+      return ai - bi;
+    });
+
+  const allBlocks = [];
+  for (const name of slideNames) {
+    const xml = await zip.file(name).async('text');
+    const spRegex = /<(p:sp|a:tc)\b[\s\S]*?<\/\1>/g;
+    let m;
+    while ((m = spRegex.exec(xml)) !== null) {
+      const sp = m[0];
+      const txBodyMatch = sp.match(/<(a:txBody|p:txBody)\b[\s\S]*?<\/\1>/);
+      if (!txBodyMatch) continue;
+      const txBody = txBodyMatch[0];
+
+      const paraRegex = /<a:p\b[^>]*>([\s\S]*?)<\/a:p>/g;
+      const paras = [];
+      let p;
+      while ((p = paraRegex.exec(txBody)) !== null) {
+        const runs = [...p[1].matchAll(/<a:t[^>]*>([\s\S]*?)<\/a:t>/g)]
+          .map(r => decodeXmlEntities(r[1]));
+        const text = runs.join('').trim();
+        if (text) paras.push(text);
+      }
+      if (!paras.length) continue;
+
+      // Position (EMUs)
+      const offMatch  = sp.match(/<a:off\s+x="(-?\d+)"\s+y="(-?\d+)"/);
+      const extMatch  = sp.match(/<a:ext\s+cx="(\d+)"\s+cy="(\d+)"/);
+      const x  = offMatch ? +offMatch[1] : 0;
+      const y  = offMatch ? +offMatch[2] : 0;
+      const cx = extMatch ? +extMatch[1] : 0;
+      const cy = extMatch ? +extMatch[2] : 0;
+
+      const allText = paras.join('\n');
+
+      // ── Footer filter ──
+      // Skip if text matches footer patterns.
+      if (isFooterText(allText)) continue;
+      // Skip short-ish text in the bottom 10% of slide (classic footer band).
+      if (slideCy > 0 && (y + cy) > slideCy * 0.90 && allText.length < 180) continue;
+
+      allBlocks.push({
+        title: paras[0],
+        body: paras.slice(1).join('\n'),
+        allText,
+        paras,
+        x, y, cx, cy,
+        cx_mid: x + cx / 2,
+        cy_mid: y + cy / 2,
+        slideCx, slideCy,
+      });
+    }
+  }
+  return allBlocks;
+}
+
+async function parseDocxSections(file) {
+  if (!window.JSZip) throw new Error('JSZip yüklenemedi, sayfayı yenileyin');
+  const zip = await window.JSZip.loadAsync(file);
+  const docFile = zip.file('word/document.xml');
+  if (!docFile) throw new Error('Geçersiz docx (document.xml bulunamadı)');
+  const xml = await docFile.async('text');
+  const paraRegex = /<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g;
+  const sections = [];
+  let cur = null;
+  let m;
+  while ((m = paraRegex.exec(xml)) !== null) {
+    const inner = m[1];
+    const style = (inner.match(/<w:pStyle\s+w:val="([^"]+)"/) || [])[1] || '';
+    const text = [...inner.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)]
+      .map(r => decodeXmlEntities(r[1])).join('').trim();
+    if (!text) continue;
+    const isHeading = /^(Heading|Title)/i.test(style);
+    if (isHeading) {
+      if (cur) sections.push(cur);
+      cur = { title: text, body: '' };
+    } else if (cur) {
+      cur.body += (cur.body ? '\n' : '') + text;
+    } else {
+      // Text before any heading — treat the first line as implicit title
+      cur = { title: text, body: '' };
+    }
+  }
+  if (cur) sections.push(cur);
+  // Add fields that buildContentMap expects (positions unused for docx)
+  return sections.map((s, i) => ({
+    ...s,
+    allText: s.title + (s.body ? '\n' + s.body : ''),
+    x: 0, y: i, cx: 0, cy: 1,
+    cx_mid: 0, cy_mid: i,
+  }));
+}
+
+// Alphanumeric-only lowercase normalization (tolerant of punctuation/spacing/case)
+const normKey = s => (s || '').toLowerCase().replace(/[^a-z0-9ğüşöçı]+/gi, '');
+
+// Does a block's first line/title contain this section name (normalized)?
+function blockMatchesSection(block, secName) {
+  if (!block) return false;
+  const sKey = normKey(secName);
+  if (!sKey) return false;
+  const titleKey = normKey(block.title);
+  if (!titleKey) return false;
+  // Exact match OR section-key appears as substring in the title line
+  return titleKey === sKey || titleKey.includes(sKey) || sKey.includes(titleKey);
+}
+
+// Score each template by how many sections have at least one matching block.
+function matchTemplate(blocks, templates) {
+  let best = null; let bestScore = 0;
+  for (const t of templates) {
+    let score = 0;
+    for (const sec of (t.sections || [])) {
+      if (blocks.some(b => blockMatchesSection(b, sec.name))) score++;
+    }
+    if (score > bestScore) { bestScore = score; best = t; }
+  }
+  return { template: best, score: bestScore };
+}
+
+// Build a map of section-name-key → content text.
+// Strategy:
+//   1. For each section, find label block(s) whose title matches the section name.
+//   2. Identify "orphan" blocks (non-label, with real textual content).
+//   3. Each orphan is assigned to the nearest section label — prioritising
+//      spatial containment (same column/row), then Euclidean distance.
+//   4. Final content = label's own body paragraphs + assigned orphans' text.
+function buildContentMap(blocks, template) {
+  const sections = template.sections || [];
+  const map = {};
+
+  // Label blocks (may be multiple for one section, rare)
+  const sectionLabels = {}; // sKey -> [blocks]
+  for (const sec of sections) {
+    const sKey = normKey(sec.name);
+    sectionLabels[sKey] = blocks.filter(b => blockMatchesSection(b, sec.name));
+  }
+  const labelBlockSet = new Set([].concat(...Object.values(sectionLabels)));
+
+  // Orphan = not a section label AND has meaningful textual content.
+  // Filters out decorations, numbered badges ("1", "6"), tiny symbols.
+  const orphans = blocks.filter(b => {
+    if (labelBlockSet.has(b)) return false;
+    const compact = (b.allText || '').replace(/\s+/g, '');
+    if (compact.length < 5) return false;
+    const alpha = compact.replace(/[^a-zA-ZğüşöçıİĞÜŞÖÇ]/g, '');
+    return alpha.length >= 3; // at least 3 alphabetic chars
+  });
+
+  // Score how well an orphan "belongs" to a given label.
+  // Lower score = better match. Prefer:
+  //   - overlapping bounding box (orphan center inside or near label's region)
+  //   - same horizontal column + below label
+  //   - smallest Euclidean distance
+  const scoreFor = (orphan, label) => {
+    const dx = orphan.cx_mid - label.cx_mid;
+    const dy = orphan.cy_mid - label.cy_mid;
+    const halfW = (label.cx + orphan.cx) / 2;
+    const halfH = (label.cy + orphan.cy) / 2;
+    const horizontalOverlap = Math.abs(dx) < halfW * 1.1;
+    const verticalOverlap   = Math.abs(dy) < halfH * 1.1;
+    const isBelow = orphan.y > label.y;
+    let score = Math.sqrt(dx * dx + dy * dy);
+    if (horizontalOverlap && verticalOverlap) score -= 1e10;        // bbox overlap
+    else if (horizontalOverlap && isBelow)    score -= 5e9;         // below in same column
+    else if (horizontalOverlap)               score -= 1e9;         // same column
+    return score;
+  };
+
+  // Assign each orphan to its closest section label.
+  const assignments = {}; // sKey -> [content strings]
+  for (const orphan of orphans) {
+    let bestKey = null;
+    let bestScore = Infinity;
+    for (const sec of sections) {
+      const sKey = normKey(sec.name);
+      const labels = sectionLabels[sKey] || [];
+      for (const label of labels) {
+        const s = scoreFor(orphan, label);
+        if (s < bestScore) { bestScore = s; bestKey = sKey; }
+      }
+    }
+    if (bestKey) {
+      if (!assignments[bestKey]) assignments[bestKey] = [];
+      assignments[bestKey].push(orphan.allText.trim());
+    }
+  }
+
+  // Compose final content per section: label's own body + assigned orphans.
+  for (const sec of sections) {
+    const sKey = normKey(sec.name);
+    const labels = sectionLabels[sKey] || [];
+    if (!labels.length) continue;
+    const parts = [];
+    for (const l of labels) {
+      const b = (l.body || '').trim();
+      if (b) parts.push(b);
+    }
+    if (assignments[sKey]) parts.push(...assignments[sKey]);
+    if (parts.length) map[sKey] = parts.join('\n').trim();
+  }
+  return map;
+}
+
+// ── Canvas editor ──────────────────────────────────────────────────────
+function CanvasEditor({ idea, canEdit }) {
+  const { state, dispatch } = useContext(Ctx);
+  const [activeId, setActiveId] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [cName, setCName] = useState('');
+  const [cTmpl, setCTmpl] = useState('');
+  const [addingSec, setAddingSec] = useState(false);
+  const [secName, setSecName] = useState('');
+  const [lightbox, setLightbox] = useState(null);
+  const [editingNameId, setEditingNameId] = useState(null);
+  const [editingNameVal, setEditingNameVal] = useState('');
+  const [dragSecId, setDragSecId] = useState(null);
+
+  const canvases = idea.canvases || [];
+  const active = canvases.find(c => c.id === activeId) || canvases[0] || null;
+
+  const createCanvas = () => {
+    if (!cName.trim()) return;
+    dispatch({ type: 'ADD_CANVAS', ideaId: idea.id, name: cName.trim(), templateId: cTmpl || null });
+    setCName(''); setCTmpl(''); setShowAdd(false);
+  };
+
+  const importFromFile = async (file) => {
+    if (!file) return;
+    try {
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      let blocks = [];
+      if (ext === 'pptx') blocks = await parsePptxSections(file);
+      else if (ext === 'docx') blocks = await parseDocxSections(file);
+      else { alert('Sadece .pptx veya .docx dosyaları desteklenir'); return; }
+
+      if (!blocks.length) { alert('Dosyada metin içerik bulunamadı'); return; }
+
+      const { template, score } = matchTemplate(blocks, state.canvasTemplates || []);
+      if (!template || score === 0) {
+        const preview = blocks.map(b => '• ' + (b.title || '').slice(0, 60)).join('\n').slice(0, 800);
+        alert(`Hiçbir şablonun bölüm adlarıyla eşleşme bulunamadı.\n\nDosyada bulunan metin kutuları:\n${preview}`);
+        return;
+      }
+
+      const contentMap = buildContentMap(blocks, template);
+      const filledCount = Object.keys(contentMap).length;
+
+      if (!confirm(
+        `"${template.name}" şablonu seçildi. ${filledCount}/${(template.sections || []).length} bölüm içerik aldı.\n\n` +
+        `Canvas oluşturulsun mu?`
+      )) return;
+
+      dispatch({
+        type: 'ADD_CANVAS',
+        ideaId: idea.id,
+        name: `${template.name} (import)`,
+        templateId: template.id,
+        contentMap,
+      });
+    } catch (err) {
+      console.error(err);
+      alert('Dosya okunamadı: ' + (err.message || err));
+    }
+  };
+
+  const patchSection = (secId, patch) => {
+    if (!active) return;
+    dispatch({
+      type: 'UPDATE_CANVAS', ideaId: idea.id, canvasId: active.id,
+      updates: { sections: active.sections.map(s => s.id === secId ? { ...s, ...patch } : s) },
+    });
+  };
+
+  const updateSection      = (_, secId, content) => patchSection(secId, { content });
+  const updateSectionImage = (_, secId, image)   => patchSection(secId, { image });
+  const updateSectionName  = (secId, name)        => patchSection(secId, { name });
+
+  const toggleJourney = (secId) => {
+    const sec = active?.sections.find(s => s.id === secId);
+    if (!sec) return;
+    const isJourney = sec.type === 'journey';
+    patchSection(secId, {
+      type: isJourney ? 'text' : 'journey',
+      steps: isJourney ? undefined : (sec.steps || []),
+    });
+  };
+
+  const updateJourneySteps = (secId, steps) => patchSection(secId, { steps });
+
+  const addSection = () => {
+    if (!active || !secName.trim()) return;
+    dispatch({
+      type: 'UPDATE_CANVAS', ideaId: idea.id, canvasId: active.id,
+      updates: { sections: [...active.sections, { id: uuid(), name: secName.trim(), content: '' }] },
+    });
+    setSecName(''); setAddingSec(false);
+  };
+
+  const deleteSection = (secId) => {
+    if (!active) return;
+    dispatch({
+      type: 'UPDATE_CANVAS', ideaId: idea.id, canvasId: active.id,
+      updates: { sections: active.sections.filter(s => s.id !== secId) },
+    });
+  };
+
+  const reorderSections = (fromId, toId) => {
+    if (!active || fromId === toId) return;
+    const list = [...active.sections];
+    const fromIdx = list.findIndex(s => s.id === fromId);
+    const toIdx   = list.findIndex(s => s.id === toId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const [moved] = list.splice(fromIdx, 1);
+    list.splice(toIdx, 0, moved);
+    dispatch({
+      type: 'UPDATE_CANVAS', ideaId: idea.id, canvasId: active.id,
+      updates: { sections: list },
+    });
+  };
+
+  const commitEditName = () => {
+    if (editingNameId && editingNameVal.trim()) {
+      updateSectionName(editingNameId, editingNameVal.trim());
+    }
+    setEditingNameId(null); setEditingNameVal('');
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 flex-wrap mb-4">
+        {canvases.map(c => (
+          <button key={c.id} onClick={() => setActiveId(c.id)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              active?.id === c.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}>
+            {c.name}
+          </button>
+        ))}
+        {canEdit && (
+          <button onClick={() => setShowAdd(!showAdd)}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100">
+            + Canvas Ekle
+          </button>
+        )}
+        {canEdit && (
+          <label className="px-3 py-1.5 rounded-lg text-sm font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 cursor-pointer"
+            title="Bölüm başlıkları şablonla eşleşen .pptx veya .docx dosyasından canvas oluştur">
+            📂 Dosyadan İçe Aktar
+            <input type="file" accept=".pptx,.docx" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; importFromFile(f); }} />
+          </label>
+        )}
+      </div>
+
+      {showAdd && canEdit && (
+        <div className="bg-slate-50 rounded-xl p-4 mb-4 border border-slate-200 space-y-2">
+          <div className="flex gap-2">
+            <input value={cName} onChange={e => setCName(e.target.value)} placeholder="Canvas adı"
+              className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
+            <select value={cTmpl} onChange={e => setCTmpl(e.target.value)}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+              <option value="">Şablonsuz</option>
+              {state.canvasTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={createCanvas}
+              className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">Oluştur</button>
+            <button onClick={() => setShowAdd(false)}
+              className="px-4 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-sm">İptal</button>
+          </div>
+        </div>
+      )}
+
+      {active ? (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="font-semibold text-slate-700">{active.name}</h4>
+            {canEdit && (
+              <div className="flex gap-2">
+                <button onClick={() => setAddingSec(true)}
+                  className="text-xs px-3 py-1 bg-slate-100 rounded-lg hover:bg-slate-200 text-slate-600">
+                  + Bölüm Ekle
+                </button>
+                <button onClick={() => {
+                  if (confirm('Bu canvası silmek istiyor musunuz?')) {
+                    dispatch({ type: 'DELETE_CANVAS', ideaId: idea.id, canvasId: active.id });
+                    setActiveId(null);
+                  }
+                }} className="text-xs px-3 py-1 bg-red-50 rounded-lg hover:bg-red-100 text-red-600">Sil</button>
+              </div>
+            )}
+          </div>
+
+          {addingSec && canEdit && (
+            <div className="flex gap-2 mb-3">
+              <input value={secName} onChange={e => setSecName(e.target.value)}
+                placeholder="Bölüm adı" autoFocus onKeyDown={e => e.key === 'Enter' && addSection()}
+                className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
+              <button onClick={addSection} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">Ekle</button>
+              <button onClick={() => setAddingSec(false)} className="px-4 py-2 bg-slate-200 rounded-lg text-sm">İptal</button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {active.sections.map(sec => {
+              const isJourney = sec.type === 'journey';
+              const spanFull = isJourney ? 'col-span-2 md:col-span-3' : '';
+              const isDragOver = dragSecId && dragSecId !== sec.id;
+              return (
+              <div key={sec.id}
+                draggable={canEdit && editingNameId !== sec.id}
+                onDragStart={e => {
+                  if (!canEdit || editingNameId === sec.id) { e.preventDefault(); return; }
+                  e.dataTransfer.setData('sec-id', sec.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                  setDragSecId(sec.id);
+                }}
+                onDragEnd={() => setDragSecId(null)}
+                onDragOver={e => { if (canEdit) e.preventDefault(); }}
+                onDrop={e => {
+                  if (!canEdit) return;
+                  e.preventDefault();
+                  const from = e.dataTransfer.getData('sec-id');
+                  if (from) reorderSections(from, sec.id);
+                  setDragSecId(null);
+                }}
+                className={`border rounded-xl p-3 bg-white transition-colors group ${spanFull} ${
+                  isDragOver ? 'border-indigo-400 border-dashed bg-indigo-50/30' : 'border-slate-200 hover:border-indigo-300'
+                }`}>
+                <div className="flex items-center justify-between mb-1.5 gap-2">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    {canEdit && (
+                      <span className="text-slate-300 cursor-grab select-none text-sm" title="Sürükleyip sırasını değiştir">⠿</span>
+                    )}
+                    {editingNameId === sec.id ? (
+                      <input
+                        autoFocus value={editingNameVal}
+                        onChange={e => setEditingNameVal(e.target.value)}
+                        onBlur={commitEditName}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { e.preventDefault(); commitEditName(); }
+                          if (e.key === 'Escape') { setEditingNameId(null); setEditingNameVal(''); }
+                        }}
+                        className="text-xs font-semibold tracking-wide border-b border-indigo-400 outline-none flex-1 text-slate-700 bg-transparent" />
+                    ) : (
+                      <span
+                        onClick={() => canEdit && (setEditingNameId(sec.id), setEditingNameVal(sec.name))}
+                        title={canEdit ? 'Adı düzenlemek için tıkla' : ''}
+                        className={`text-xs font-semibold text-slate-500 tracking-wide truncate ${canEdit ? 'cursor-text hover:text-indigo-600' : ''}`}>
+                        {(sec.name || '').toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  {canEdit && (
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => toggleJourney(sec.id)}
+                        title={isJourney ? 'Düz metne çevir' : 'User Journey akışına çevir'}
+                        className={`text-xs px-1.5 py-0.5 rounded ${isJourney ? 'bg-indigo-100 text-indigo-700' : 'text-slate-400 hover:text-indigo-500'}`}>
+                        {isJourney ? '🛣️' : '🛣️'}
+                      </button>
+                      <button onClick={() => deleteSection(sec.id)}
+                        className="text-slate-300 hover:text-red-400 text-lg leading-none">&times;</button>
+                    </div>
+                  )}
+                </div>
+
+                {isJourney ? (
+                  <JourneyFlow
+                    steps={sec.steps || []}
+                    canEdit={canEdit}
+                    onChange={steps => updateJourneySteps(sec.id, steps)}
+                  />
+                ) : (
+                  <>
+                    <AutoGrowTextarea value={sec.content || ''}
+                      onChange={e => canEdit && updateSection(active.id, sec.id, e.target.value)}
+                      readOnly={!canEdit}
+                      placeholder={canEdit ? 'İçerik girin…' : '—'}
+                      minRows={4}
+                      className="w-full text-sm text-slate-700 resize-none outline-none bg-transparent min-h-[100px]" />
+                    {sec.image && (
+                      <div className="mt-2 relative group/img">
+                        <img src={sec.image} alt="" onClick={() => setLightbox(sec.image)}
+                          className="w-full rounded-lg object-cover max-h-40 border border-slate-100 cursor-zoom-in hover:opacity-90 transition-opacity" />
+                        {canEdit && (
+                          <button onClick={() => updateSectionImage(active.id, sec.id, null)}
+                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity">×</button>
+                        )}
+                      </div>
+                    )}
+                    {canEdit && (
+                      <label className="mt-2 cursor-pointer flex items-center gap-1 text-xs text-slate-400 hover:text-indigo-500 transition-colors">
+                        🖼️ {sec.image ? 'Görseli değiştir' : 'Görsel ekle'}
+                        <input type="file" accept="image/*" className="hidden" onChange={e => {
+                          const file = e.target.files[0];
+                          if (!file) return;
+                          if (file.size > 3 * 1024 * 1024) { alert('Maksimum 3MB'); return; }
+                          const reader = new FileReader();
+                          reader.onload = ev => updateSectionImage(active.id, sec.id, ev.target.result);
+                          reader.readAsDataURL(file);
+                          e.target.value = '';
+                        }} />
+                      </label>
+                    )}
+                  </>
+                )}
+              </div>
+            );})}
+          </div>
+        </div>
+      ) : (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-5xl mb-3">🗂️</p>
+          <p className="font-medium">Henüz canvas eklenmemiş</p>
+          {canEdit && <p className="text-sm mt-1">Yukarıdan "Canvas Ekle" butonunu kullanın</p>}
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div className="fixed inset-0 z-[999] bg-black/90 flex items-center justify-center p-4"
+             onClick={() => setLightbox(null)}>
+          <button onClick={() => setLightbox(null)}
+            className="absolute top-4 right-5 text-white text-4xl leading-none hover:text-slate-300">&times;</button>
+          <img src={lightbox} alt="" onClick={e => e.stopPropagation()}
+            className="max-w-full max-h-[90vh] rounded-xl shadow-2xl object-contain" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Evaluation panel ───────────────────────────────────────────────────
+const EVAL_OPTIONS = [
+  { id: 'approved', label: '✅ Onaylandı', bg: 'bg-green-100', border: 'border-green-400', text: 'text-green-700' },
+  { id: 'on-hold',  label: '⏸️ Beklemede', bg: 'bg-amber-100', border: 'border-amber-400', text: 'text-amber-700' },
+  { id: 'rejected', label: '❌ Reddedildi', bg: 'bg-red-100',   border: 'border-red-400',   text: 'text-red-700'   },
+];
+
+function EvaluationPanel({ idea, stageId, canEdit }) {
+  const { state, dispatch } = useContext(Ctx);
+  const ev = idea.stageData?.[stageId]?.evaluation || {};
+  const [result, setResult]     = useState(ev.result || '');
+  const [summary, setSummary]   = useState(ev.summary || '');
+  const [nextSteps, setNextSteps] = useState(ev.nextSteps || '');
+  const [autoMoved, setAutoMoved] = useState('');
+
+  useEffect(() => {
+    const e = idea.stageData?.[stageId]?.evaluation || {};
+    setResult(e.result || ''); setSummary(e.summary || ''); setNextSteps(e.nextSteps || '');
+  }, [stageId, idea.id]);
+
+  const autoMove = (selectedResult) => {
+    const nameMap = {
+      'on-hold':  s => s.name.toLowerCase().includes('waitlist') || s.name.toLowerCase().includes('bekleme'),
+      'rejected': s => s.name.toLowerCase().includes('rejected') || s.name.toLowerCase().includes('reddedildi'),
+    };
+    const matcher = nameMap[selectedResult];
+    if (!matcher) return;
+    const target = [...state.stages].reverse().find(matcher);
+    if (target && target.id !== idea.stageId) {
+      dispatch({ type: 'MOVE_IDEA', id: idea.id, stageId: target.id });
+      setAutoMoved(`"${target.name}" adımına taşındı`);
+      setTimeout(() => setAutoMoved(''), 3000);
+    }
+  };
+
+  const save = () => {
+    dispatch({ type: 'SET_EVALUATION', ideaId: idea.id, stageId, evaluation: { result, summary, nextSteps } });
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <label className="block text-sm font-semibold text-slate-700 mb-2">Değerlendirme Sonucu</label>
+        <div className="flex gap-3">
+          {EVAL_OPTIONS.map(o => (
+            <button key={o.id}
+              onClick={() => {
+                if (!canEdit) return;
+                setResult(o.id);
+                autoMove(o.id);
+              }}
+              className={`flex-1 py-3 px-3 rounded-xl border-2 text-sm font-medium transition-all ${
+                result === o.id ? `${o.bg} ${o.border} ${o.text}` : 'bg-white border-slate-200 text-slate-500'
+              } ${canEdit ? 'hover:border-slate-300 cursor-pointer' : 'cursor-default'}`}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-semibold text-slate-700 mb-1">Değerlendirme Özeti</label>
+        <textarea value={summary} onChange={e => canEdit && setSummary(e.target.value)} rows={3}
+          readOnly={!canEdit}
+          placeholder={canEdit ? 'Bu adımda ne değerlendirildi, neler öğrenildi?' : '—'}
+          className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:border-indigo-300" />
+      </div>
+
+      <div>
+        <label className="block text-sm font-semibold text-slate-700 mb-1">Sonraki Adımlar</label>
+        <textarea value={nextSteps} onChange={e => canEdit && setNextSteps(e.target.value)} rows={3}
+          readOnly={!canEdit}
+          placeholder={canEdit ? 'Bir sonraki adımda ne yapılacak?' : '—'}
+          className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:border-indigo-300" />
+      </div>
+
+      {canEdit && (
+        <button onClick={save}
+          className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors">
+          Değerlendirmeyi Kaydet
+        </button>
+      )}
+
+      {autoMoved && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm px-4 py-2.5 rounded-xl text-center">
+          🔀 {autoMoved}
+        </div>
+      )}
+
+      {ev.evaluatedAt && (
+        <p className="text-xs text-center text-slate-400">
+          Son güncelleme: {new Date(ev.evaluatedAt).toLocaleDateString('tr-TR', {
+            day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+          })}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Next Step panel ────────────────────────────────────────────────────
+function NextStepPanel({ idea, canEdit }) {
+  const { dispatch } = useContext(Ctx);
+  const [val, setVal] = useState(idea.nextStep || '');
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => { setVal(idea.nextStep || ''); }, [idea.id, idea.nextStep]);
+
+  const save = () => {
+    dispatch({ type: 'UPDATE_IDEA', id: idea.id, updates: { nextStep: val } });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 text-sm text-indigo-800">
+        <b>➡️ Next Step</b> — bu projenin bir sonraki somut adımını buraya yazın. Ekip için tek bir odak noktası.
+      </div>
+      <AutoGrowTextarea
+        value={val}
+        onChange={e => canEdit && setVal(e.target.value)}
+        readOnly={!canEdit}
+        placeholder={canEdit ? 'Ör: Müşteri X ile keşif görüşmesi planla, 25 Nisan’a kadar…' : '—'}
+        minRows={6}
+        className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm leading-relaxed focus:outline-none focus:border-indigo-300 bg-white resize-none"
+      />
+      {canEdit && (
+        <div className="flex justify-end">
+          <button onClick={save}
+            className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700">
+            {saved ? '✅ Kaydedildi' : 'Kaydet'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Idea detail modal ──────────────────────────────────────────────────
+function IdeaDetailModal({ idea, onClose, canEdit }) {
+  const { state, dispatch } = useContext(Ctx);
+  const [tab, setTab] = useState('nextStep');
+  const [activeStageId, setActiveStageId] = useState(idea.stageId);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({
+    title: idea.title, tagline: idea.tagline || '',
+    description: idea.description || '',
+    owner: idea.owner || '',
+    tags: Array.isArray(idea.tags) ? idea.tags : [],
+  });
+
+  const liveIdea = state.ideas.find(i => i.id === idea.id) || idea;
+
+  const saveEdit = () => {
+    dispatch({ type: 'UPDATE_IDEA', id: idea.id, updates: form });
+    setEditing(false);
+  };
+
+  const evalResult = liveIdea.stageData?.[idea.stageId]?.evaluation?.result;
+  const evalIcon   = { approved: '✅', rejected: '❌', 'on-hold': '⏸️' }[evalResult] || '';
+
+  const noteCount   = Object.values(liveIdea.stageData || {}).reduce((a, sd) => a + (sd.notes?.length || 0), 0);
+  const canvasCount = (liveIdea.canvases || []).length;
+
+  return (
+    <Modal isOpen onClose={onClose} title={null} size="xl">
+      <div className="p-6 pb-4">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="flex-1 min-w-0">
+            {editing ? (
+              <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })}
+                className="text-xl font-bold w-full border-b-2 border-indigo-300 outline-none pb-1 mb-2" />
+            ) : (
+              <h2 className="text-xl font-bold text-slate-800 mb-1">{liveIdea.title}</h2>
+            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              {evalIcon && <span className="text-sm">{evalIcon}</span>}
+              <span className="text-xs text-slate-400">{new Date(liveIdea.createdAt).toLocaleDateString('tr-TR')}</span>
+              {liveIdea.owner && <span className="text-xs text-slate-500">👤 {liveIdea.owner}</span>}
+            </div>
+          </div>
+          {canEdit && (
+            <div className="flex gap-2 flex-shrink-0">
+              {editing ? (
+                <>
+                  <button onClick={saveEdit}
+                    className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">Kaydet</button>
+                  <button onClick={() => setEditing(false)}
+                    className="px-4 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-sm">İptal</button>
+                </>
+              ) : (
+                <button onClick={() => setEditing(true)}
+                  className="px-4 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm hover:bg-slate-200">
+                  ✏️ Düzenle
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Edit form */}
+        {editing && (
+          <div className="bg-slate-50 rounded-xl p-4 mb-4 space-y-3 border border-slate-200">
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase">Kısa Tanım (kartta görünür)</label>
+              <input value={form.tagline} onChange={e => setForm({ ...form, tagline: e.target.value })}
+                placeholder="Fikri tek cümleyle özetle…"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-indigo-300" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase">Açıklama</label>
+              <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+                rows={2}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mt-1 resize-none focus:outline-none focus:border-indigo-300" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase">Sorumlu</label>
+              <input value={form.owner} onChange={e => setForm({ ...form, owner: e.target.value })}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:border-indigo-300" />
+            </div>
+          </div>
+        )}
+
+        {!editing && (liveIdea.tagline || liveIdea.description || (liveIdea.tags || []).length > 0) && (
+          <div className="mb-4 bg-slate-50 rounded-xl px-4 py-3 space-y-1.5">
+            {liveIdea.tagline && <p className="text-sm font-medium text-slate-700">{liveIdea.tagline}</p>}
+            {liveIdea.description && <p className="text-sm text-slate-500">{liveIdea.description}</p>}
+            {(liveIdea.tags || []).length > 0 && (
+              <div className="flex flex-wrap gap-1 pt-1">
+                {liveIdea.tags.map(t => (
+                  <span key={t} className="text-xs font-medium bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">#{t}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Stage breadcrumb */}
+        <div className="mb-4 overflow-x-auto">
+          <div className="flex items-center gap-1 min-w-max">
+            {state.stages.map((st, i) => {
+              const isActive  = st.id === liveIdea.stageId;
+              const isPast    = state.stages.findIndex(s => s.id === liveIdea.stageId) > i;
+              const isViewing = st.id === activeStageId;
+              return (
+                <React.Fragment key={st.id}>
+                  <button onClick={() => setActiveStageId(st.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all border-2 ${
+                      isViewing ? 'border-slate-800' : 'border-transparent'
+                    } ${
+                      isActive ? 'text-white' : isPast ? 'text-white opacity-60' : 'bg-slate-100 text-slate-400'
+                    }`}
+                    style={isActive || isPast ? { background: st.color } : {}}>
+                    {st.name}{isActive && ' ◀'}
+                  </button>
+                  {i < state.stages.length - 1 && <span className="text-slate-300 text-xs">›</span>}
+                </React.Fragment>
+              );
+            })}
+          </div>
+          {canEdit && (
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-xs text-slate-400">Taşı:</span>
+              {state.stages.filter(s => s.id !== liveIdea.stageId).map(s => (
+                <button key={s.id}
+                  onClick={() => { dispatch({ type: 'MOVE_IDEA', id: idea.id, stageId: s.id }); }}
+                  className="text-xs px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 font-medium">
+                  → {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Tabs */}
+        <div className="border-b border-slate-200 mb-4">
+          <div className="flex">
+            {[
+              { id: 'nextStep',   label: '➡️ Next Step',    badge: liveIdea.nextStep ? '•' : null },
+              { id: 'notes',      label: '📝 Notlar',       badge: noteCount || null },
+              { id: 'canvas',     label: '🗂️ Canvas',       badge: canvasCount || null },
+              { id: 'evaluation', label: '✅ Değerlendirme', badge: null },
+            ].map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+                  tab === t.id ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}>
+                {t.label}
+                {t.badge != null && (
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${
+                    tab === t.id ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'
+                  }`}>{t.badge}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="pb-2">
+          {tab === 'nextStep'   && <NextStepPanel idea={liveIdea} canEdit={canEdit} />}
+          {tab === 'notes'      && <NotesPanel idea={liveIdea} stageId={activeStageId || liveIdea.stageId} canEdit={canEdit} />}
+          {tab === 'canvas'     && <CanvasEditor idea={liveIdea} canEdit={canEdit} />}
+          {tab === 'evaluation' && <EvaluationPanel idea={liveIdea} stageId={activeStageId || liveIdea.stageId} canEdit={canEdit} />}
+        </div>
+
+        <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-100">
+          {canEdit ? (
+            <button onClick={() => {
+              if (confirm('Bu fikri silmek istediğinize emin misiniz?')) {
+                dispatch({ type: 'DELETE_IDEA', id: idea.id });
+                onClose();
+              }
+            }} className="text-sm text-red-400 hover:text-red-600">🗑️ Fikri Sil</button>
+          ) : (
+            <span className="text-xs text-slate-400 bg-slate-100 px-3 py-1 rounded-full">👁️ Görüntüleme modu</span>
+          )}
+          <p className="text-xs text-slate-400">
+            Oluşturuldu: {new Date(liveIdea.createdAt).toLocaleDateString('tr-TR')} ·
+            Güncellendi: {new Date(liveIdea.updatedAt).toLocaleDateString('tr-TR')}
+          </p>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Card tag picker ────────────────────────────────────────────────────
+function CardTagPicker({ idea, canEdit }) {
+  const { state, dispatch } = useContext(Ctx);
+  const [open, setOpen] = useState(false);
+  const library = Array.isArray(state.tagLibrary) ? state.tagLibrary : [];
+  const selected = Array.isArray(idea.tags) ? idea.tags : [];
+  const available = library.filter(t => !selected.includes(t));
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const setTags = (tags) => {
+    dispatch({ type: 'UPDATE_IDEA', id: idea.id, updates: { tags } });
+  };
+
+  const toggle = (t) => {
+    if (selected.includes(t)) setTags(selected.filter(x => x !== t));
+    else setTags([...selected, t]);
+  };
+
+  const removeTag = (e, t) => {
+    e.stopPropagation();
+    setTags(selected.filter(x => x !== t));
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 mb-2" onClick={e => e.stopPropagation()}>
+      {selected.map(t => (
+        <span key={t} className="flex items-center gap-0.5 text-[10px] font-medium bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded-full">
+          #{t}
+          {canEdit && (
+            <button onClick={(e) => removeTag(e, t)}
+              className="text-indigo-300 hover:text-red-500 text-xs leading-none">×</button>
+          )}
+        </span>
+      ))}
+      {canEdit && (
+        <div className="relative" ref={ref}>
+          <button onClick={(e) => { e.stopPropagation(); setOpen(v => !v); }}
+            className="text-[10px] text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 border border-dashed border-slate-300 hover:border-indigo-300 rounded-full px-1.5 py-0.5">
+            + Tag
+          </button>
+          {open && (
+            <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-xl shadow-lg p-2 w-48 max-h-56 overflow-y-auto">
+              {library.length === 0 ? (
+                <p className="text-xs text-slate-400 italic px-2 py-1">
+                  Önce "🏷️ Tag Ekle"den etiket oluştur
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {library.map(t => {
+                    const on = selected.includes(t);
+                    return (
+                      <button key={t} onClick={() => toggle(t)}
+                        className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                          on ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-indigo-50 hover:border-indigo-300'
+                        }`}>
+                        {on ? '✓ ' : ''}#{t}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Idea card ──────────────────────────────────────────────────────────
+function IdeaCard({ idea, onOpen, canEdit }) {
+  const noteCount   = Object.values(idea.stageData || {}).reduce((a, sd) => a + (sd.notes?.length || 0), 0);
+  const canvasCount = (idea.canvases || []).length;
+  const evalResult  = idea.stageData?.[idea.stageId]?.evaluation?.result;
+  const evalIcon    = { approved: '✅', rejected: '❌', 'on-hold': '⏸️' }[evalResult] || '';
+
+  return (
+    <div draggable
+      onDragStart={e => { e.dataTransfer.setData('ideaId', idea.id); e.dataTransfer.effectAllowed = 'move'; }}
+      onClick={() => onOpen(idea)}
+      className="bg-white rounded-xl shadow-sm border border-slate-200 p-3.5 cursor-pointer
+                 hover:shadow-md hover:border-indigo-200 active:opacity-70 transition-all select-none">
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <h4 className="text-sm font-semibold text-slate-800 leading-snug flex-1">{idea.title}</h4>
+        {evalIcon && <span className="flex-shrink-0 text-base">{evalIcon}</span>}
+      </div>
+
+      {idea.tagline && (
+        <p className="text-xs text-slate-500 mb-2 line-clamp-2 leading-relaxed">{idea.tagline}</p>
+      )}
+
+      <CardTagPicker idea={idea} canEdit={canEdit} />
+
+      {(noteCount > 0 || canvasCount > 0 || idea.owner) && (
+        <div className="flex items-center gap-3 pt-2 border-t border-slate-50">
+          {noteCount   > 0 && <span className="text-xs text-slate-400">📝 {noteCount}</span>}
+          {canvasCount > 0 && <span className="text-xs text-slate-400">🗂️ {canvasCount}</span>}
+          {idea.owner && <span className="text-xs text-slate-400 ml-auto truncate">👤 {idea.owner}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Inline add form ────────────────────────────────────────────────────
+function AddIdeaInline({ stageId, onDone }) {
+  const { dispatch } = useContext(Ctx);
+  const [title, setTitle] = useState('');
+  const [tagline, setTagline] = useState('');
+
+  const submit = () => {
+    if (!title.trim()) return;
+    dispatch({ type: 'ADD_IDEA', title: title.trim(), tagline: tagline.trim(), stageId });
+    setTitle(''); setTagline(''); onDone();
+  };
+
+  return (
+    <div className="bg-white rounded-xl border-2 border-indigo-300 p-3 shadow-sm">
+      <input autoFocus value={title} onChange={e => setTitle(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onDone(); }}
+        placeholder="Fikir başlığı…"
+        className="w-full text-sm font-semibold outline-none mb-2 placeholder:font-normal placeholder:text-slate-400" />
+      <input value={tagline} onChange={e => setTagline(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onDone(); }}
+        placeholder="Tek cümle açıklama… (kartta görünür)"
+        className="w-full text-xs outline-none mb-2 text-slate-600 placeholder:text-slate-400" />
+      <div className="flex gap-2 justify-end">
+        <button onClick={onDone}
+          className="text-xs px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200">İptal</button>
+        <button onClick={submit}
+          className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium">Ekle</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Pipeline column ────────────────────────────────────────────────────
+function PipelineColumn({ stage, ideas, onOpen, canEdit, onStageReorder }) {
+  const { dispatch } = useContext(Ctx);
+  const [showAdd, setShowAdd] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [stageDragOver, setStageDragOver] = useState(false);
+
+  return (
+    <div className={`flex-shrink-0 w-[272px] flex flex-col transition-opacity ${stageDragOver ? 'opacity-40' : ''}`}
+         onDragOver={e => {
+           e.preventDefault();
+           if (e.dataTransfer.types.includes('stage-id')) setStageDragOver(true);
+           else setDragOver(true);
+         }}
+         onDragLeave={e => {
+           if (!e.currentTarget.contains(e.relatedTarget)) {
+             setDragOver(false); setStageDragOver(false);
+           }
+         }}
+         onDrop={e => {
+           e.preventDefault(); setDragOver(false); setStageDragOver(false);
+           const droppedStageId = e.dataTransfer.getData('stage-id');
+           const ideaId = e.dataTransfer.getData('ideaId');
+           if (droppedStageId && onStageReorder) onStageReorder(droppedStageId, stage.id);
+           else if (ideaId && canEdit) dispatch({ type: 'MOVE_IDEA', id: ideaId, stageId: stage.id });
+         }}>
+      <div className={`flex items-center justify-between px-4 py-3 rounded-t-2xl ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
+           style={{ background: stage.color }}
+           draggable={canEdit}
+           onDragStart={e => {
+             e.dataTransfer.setData('stage-id', stage.id);
+             e.dataTransfer.effectAllowed = 'move';
+           }}>
+        <div className="flex items-center gap-2">
+          {canEdit && <span className="text-white/50 text-xs select-none mr-1">⠿</span>}
+          <span className="font-bold text-white text-sm">{stage.name}</span>
+          <span className="bg-white/25 text-white text-xs px-2 py-0.5 rounded-full">{ideas.length}</span>
+        </div>
+        {canEdit && (
+          <button onClick={() => setShowAdd(true)}
+            onDragStart={e => e.stopPropagation()}
+            className="text-white/80 hover:text-white text-2xl font-light w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/20 transition-colors">
+            +
+          </button>
+        )}
+      </div>
+
+      <div className={`flex-1 rounded-b-2xl p-3 space-y-2 min-h-[320px] transition-colors ${
+        dragOver && canEdit ? 'bg-indigo-50 ring-2 ring-indigo-400 ring-inset' : 'bg-slate-100'
+      }`}>
+        {showAdd && (
+          <AddIdeaInline stageId={stage.id} onDone={() => setShowAdd(false)} />
+        )}
+        {ideas.map(idea => <IdeaCard key={idea.id} idea={idea} onOpen={onOpen} canEdit={canEdit} />)}
+        {ideas.length === 0 && !showAdd && (
+          <div className="flex items-center justify-center h-24 text-slate-300 text-xs select-none">
+            {canEdit ? 'Buraya sürükleyin veya + ekleyin' : 'Fikir yok'}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Settings modal ─────────────────────────────────────────────────────
+// ── Canvas templates manager (Settings tab) ────────────────────────────
+function CanvasTemplatesManager({ templates, dispatch }) {
+  const [expandedId, setExpandedId] = useState(null);
+  const [newTmplName, setNewTmplName] = useState('');
+  const [dragSecId, setDragSecId] = useState(null);
+
+  const save = (next) => dispatch({ type: 'SET_CANVAS_TEMPLATES', templates: next });
+
+  const addTemplate = () => {
+    if (!newTmplName.trim()) return;
+    const t = { id: 'tmpl-' + Date.now(), name: newTmplName.trim(), sections: [] };
+    save([...(templates || []), t]);
+    setNewTmplName('');
+    setExpandedId(t.id);
+  };
+
+  const deleteTemplate = (id) => {
+    const t = templates.find(x => x.id === id);
+    if (!confirm(`"${t?.name || 'Şablon'}" şablonunu silmek istiyor musunuz? (Mevcut canvas’lar etkilenmez)`)) return;
+    save(templates.filter(x => x.id !== id));
+  };
+
+  const renameTemplate = (id, name) => {
+    save(templates.map(t => t.id === id ? { ...t, name } : t));
+  };
+
+  const addSection = (tmplId, name) => {
+    if (!name.trim()) return;
+    save(templates.map(t => t.id === tmplId
+      ? { ...t, sections: [...(t.sections || []), { id: 'sec-' + Date.now(), name: name.trim() }] }
+      : t));
+  };
+
+  const updateSection = (tmplId, secId, patch) => {
+    save(templates.map(t => t.id === tmplId
+      ? { ...t, sections: (t.sections || []).map(s => s.id === secId ? { ...s, ...patch } : s) }
+      : t));
+  };
+
+  const deleteSection = (tmplId, secId) => {
+    save(templates.map(t => t.id === tmplId
+      ? { ...t, sections: (t.sections || []).filter(s => s.id !== secId) }
+      : t));
+  };
+
+  const reorderSection = (tmplId, fromId, toId) => {
+    if (!fromId || !toId || fromId === toId) return;
+    save(templates.map(t => {
+      if (t.id !== tmplId) return t;
+      const list = [...(t.sections || [])];
+      const fi = list.findIndex(s => s.id === fromId);
+      const ti = list.findIndex(s => s.id === toId);
+      if (fi < 0 || ti < 0) return t;
+      const [moved] = list.splice(fi, 1);
+      list.splice(ti, 0, moved);
+      return { ...t, sections: list };
+    }));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800">
+        Şablonlardan yeni canvas oluşturulurken bölümler kopyalanır. Burada yapılan değişiklikler eski canvas’ları etkilemez.
+      </div>
+
+      {(templates || []).map(tmpl => (
+        <TemplateRow key={tmpl.id}
+          tmpl={tmpl}
+          expanded={expandedId === tmpl.id}
+          onToggle={() => setExpandedId(expandedId === tmpl.id ? null : tmpl.id)}
+          onRename={(name) => renameTemplate(tmpl.id, name)}
+          onDelete={() => deleteTemplate(tmpl.id)}
+          onAddSection={(name) => addSection(tmpl.id, name)}
+          onUpdateSection={(secId, patch) => updateSection(tmpl.id, secId, patch)}
+          onDeleteSection={(secId) => deleteSection(tmpl.id, secId)}
+          onReorderSection={(fromId, toId) => reorderSection(tmpl.id, fromId, toId)}
+          dragSecId={dragSecId}
+          setDragSecId={setDragSecId}
+        />
+      ))}
+
+      <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+        <h4 className="text-sm font-semibold text-slate-700 mb-2">Yeni Şablon Ekle</h4>
+        <div className="flex gap-2">
+          <input value={newTmplName} onChange={e => setNewTmplName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addTemplate()}
+            placeholder="Şablon adı (örn. Product Canvas)"
+            className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
+          <button onClick={addTemplate}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
+            + Ekle
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TemplateRow({ tmpl, expanded, onToggle, onRename, onDelete, onAddSection, onUpdateSection, onDeleteSection, onReorderSection, dragSecId, setDragSecId }) {
+  const [editingName, setEditingName] = useState(false);
+  const [nameVal, setNameVal] = useState(tmpl.name);
+  const [newSecName, setNewSecName] = useState('');
+  const [editingSecId, setEditingSecId] = useState(null);
+  const [editingSecVal, setEditingSecVal] = useState('');
+
+  useEffect(() => { setNameVal(tmpl.name); }, [tmpl.name]);
+
+  const commitName = () => {
+    if (nameVal.trim() && nameVal !== tmpl.name) onRename(nameVal.trim());
+    setEditingName(false);
+  };
+
+  const commitSec = () => {
+    if (editingSecId && editingSecVal.trim()) {
+      onUpdateSection(editingSecId, { name: editingSecVal.trim() });
+    }
+    setEditingSecId(null); setEditingSecVal('');
+  };
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="flex items-center gap-2 p-3">
+        <button onClick={onToggle} className="text-slate-400 hover:text-slate-600 text-sm w-6 text-center">
+          {expanded ? '▼' : '▶'}
+        </button>
+        {editingName ? (
+          <input autoFocus value={nameVal} onChange={e => setNameVal(e.target.value)}
+            onBlur={commitName}
+            onKeyDown={e => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') { setNameVal(tmpl.name); setEditingName(false); } }}
+            className="flex-1 border-b border-indigo-400 outline-none text-sm font-semibold text-slate-800 bg-transparent" />
+        ) : (
+          <span onClick={() => setEditingName(true)}
+            className="flex-1 text-sm font-semibold text-slate-800 cursor-text hover:text-indigo-600">
+            {tmpl.name}
+          </span>
+        )}
+        <span className="text-xs text-slate-400">{(tmpl.sections || []).length} bölüm</span>
+        <button onClick={() => setEditingName(true)}
+          className="text-xs text-slate-400 hover:text-indigo-600 px-2 py-1 rounded hover:bg-slate-50">Adı Düzenle</button>
+        <button onClick={onDelete}
+          className="text-xs text-red-400 hover:text-red-600 px-2 py-1 rounded hover:bg-red-50">Sil</button>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-slate-100 p-3 bg-slate-50 space-y-2">
+          {(tmpl.sections || []).length === 0 && (
+            <p className="text-xs text-slate-400 italic">Henüz bölüm eklenmemiş</p>
+          )}
+          {(tmpl.sections || []).map((sec, i) => {
+            const isDragOver = dragSecId && dragSecId !== sec.id;
+            const isJourney = sec.type === 'journey';
+            return (
+              <div key={sec.id}
+                draggable={editingSecId !== sec.id}
+                onDragStart={e => { e.dataTransfer.setData('tmpl-sec-id', sec.id); e.dataTransfer.effectAllowed = 'move'; setDragSecId(sec.id); }}
+                onDragEnd={() => setDragSecId(null)}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => { e.preventDefault(); const from = e.dataTransfer.getData('tmpl-sec-id'); onReorderSection(from, sec.id); setDragSecId(null); }}
+                className={`flex items-center gap-2 bg-white rounded-lg p-2 border ${isDragOver ? 'border-indigo-400 border-dashed' : 'border-slate-200'}`}>
+                <span className="text-slate-300 cursor-grab select-none text-sm" title="Sürükle">⠿</span>
+                <span className="text-xs text-slate-400 w-5 text-center">{i + 1}</span>
+                {editingSecId === sec.id ? (
+                  <input autoFocus value={editingSecVal}
+                    onChange={e => setEditingSecVal(e.target.value)}
+                    onBlur={commitSec}
+                    onKeyDown={e => { if (e.key === 'Enter') commitSec(); if (e.key === 'Escape') { setEditingSecId(null); setEditingSecVal(''); } }}
+                    className="flex-1 border-b border-indigo-400 outline-none text-sm text-slate-700 bg-transparent" />
+                ) : (
+                  <span onClick={() => { setEditingSecId(sec.id); setEditingSecVal(sec.name); }}
+                    className="flex-1 text-sm text-slate-700 cursor-text hover:text-indigo-600">
+                    {sec.name}
+                  </span>
+                )}
+                <button onClick={() => onUpdateSection(sec.id, { type: isJourney ? 'text' : 'journey' })}
+                  title={isJourney ? 'Düz metne çevir' : 'User Journey akışı yap'}
+                  className={`text-xs px-2 py-0.5 rounded ${isJourney ? 'bg-indigo-100 text-indigo-700' : 'text-slate-400 hover:bg-slate-100'}`}>
+                  🛣️ {isJourney ? 'Akış' : 'Metin'}
+                </button>
+                <button onClick={() => { setEditingSecId(sec.id); setEditingSecVal(sec.name); }}
+                  className="text-xs text-slate-400 hover:text-indigo-600 px-2 py-1">Düzenle</button>
+                <button onClick={() => onDeleteSection(sec.id)}
+                  className="text-xs text-red-400 hover:text-red-600 px-2 py-1">Sil</button>
+              </div>
+            );
+          })}
+          <div className="flex gap-2 pt-2">
+            <input value={newSecName} onChange={e => setNewSecName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && newSecName.trim()) { onAddSection(newSecName); setNewSecName(''); } }}
+              placeholder="Yeni bölüm adı"
+              className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-indigo-300" />
+            <button onClick={() => { if (newSecName.trim()) { onAddSection(newSecName); setNewSecName(''); } }}
+              className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
+              + Bölüm
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tag library manager ────────────────────────────────────────────────
+function TagLibraryModal({ onClose }) {
+  const { state, dispatch } = useContext(Ctx);
+  const library = Array.isArray(state.tagLibrary) ? state.tagLibrary : [];
+  const [val, setVal] = useState('');
+
+  const add = () => {
+    const clean = val.trim().replace(/^#+/, '');
+    if (!clean) return;
+    if (library.some(t => t.toLowerCase() === clean.toLowerCase())) { setVal(''); return; }
+    dispatch({ type: 'SET_TAG_LIBRARY', tags: [...library, clean] });
+    setVal('');
+  };
+
+  const remove = (tag) => {
+    if (!confirm(`"#${tag}" etiketini kütüphaneden silmek istiyor musunuz? (Kartlardaki mevcut etiketler korunur)`)) return;
+    dispatch({ type: 'SET_TAG_LIBRARY', tags: library.filter(t => t !== tag) });
+  };
+
+  // Count how many cards use each tag
+  const counts = {};
+  (state.ideas || []).forEach(i => (i.tags || []).forEach(t => { counts[t] = (counts[t] || 0) + 1; }));
+
+  return (
+    <Modal isOpen onClose={onClose} title="🏷️ Tag Kütüphanesi" size="md">
+      <div className="p-6 space-y-4">
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 text-xs text-indigo-800">
+          Buraya eklediğiniz etiketler kartlardaki <b>"+ Tag"</b> seçeneğinden kullanılabilir olur.
+        </div>
+
+        <div className="flex gap-2">
+          <input autoFocus value={val} onChange={e => setVal(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && add()}
+            placeholder="Etiket adı (örn. fintech)"
+            className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
+          <button onClick={add}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
+            + Ekle
+          </button>
+        </div>
+
+        {library.length === 0 ? (
+          <p className="text-sm text-slate-400 italic text-center py-4">Henüz etiket yok. Yukarıdan ekleyin.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {library.map(t => (
+              <span key={t} className="flex items-center gap-1.5 bg-indigo-50 text-indigo-700 text-sm px-3 py-1.5 rounded-full border border-indigo-200">
+                #{t}
+                {counts[t] > 0 && (
+                  <span className="text-[10px] bg-indigo-200 text-indigo-800 rounded-full px-1.5">
+                    {counts[t]}
+                  </span>
+                )}
+                <button onClick={() => remove(t)}
+                  className="text-indigo-400 hover:text-red-500 text-base leading-none ml-0.5">&times;</button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function SettingsModal({ onClose, onLogout }) {
+  const { state, dispatch, authCfg: ctxAuthCfg, setAuthCfg: ctxSetAuthCfg } = useContext(Ctx);
+  const [tab, setTab]           = useState('pipeline');
+  const [newName, setNewName]   = useState('');
+  const [newColor, setNewColor] = useState(PALETTE[4]);
+  const [editId, setEditId]     = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editColor, setEditColor] = useState('');
+
+  // Auth config — shared via Firebase (context)
+  const authCfg = ctxAuthCfg || { enabled: false, adminPass: '', viewerPass: '', securityQ: '', securityA: '' };
+  const [adminPass, setAdminPass]   = useState('');
+  const [viewerPass, setViewerPass] = useState('');
+  const [securityQ, setSecurityQ]   = useState('');
+  const [securityA, setSecurityA]   = useState('');
+  const [authSaved, setAuthSaved]   = useState(false);
+  const [inviteMsg, setInviteMsg]   = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+
+  const addStage = () => {
+    if (!newName.trim()) return;
+    dispatch({ type: 'ADD_STAGE', name: newName.trim(), color: newColor });
+    setNewName('');
+  };
+
+  const moveStage = (idx, dir) => {
+    const stages = [...state.stages];
+    const target = idx + dir;
+    if (target < 0 || target >= stages.length) return;
+    [stages[idx], stages[target]] = [stages[target], stages[idx]];
+    dispatch({ type: 'REORDER_STAGES', stages });
+  };
+
+  const saveAuth = () => {
+    const cfg = {
+      enabled: !!(adminPass || viewerPass || authCfg.adminPass || authCfg.viewerPass),
+      adminPass:  adminPass  || authCfg.adminPass  || '',
+      viewerPass: viewerPass || authCfg.viewerPass || '',
+      securityQ:  securityQ  || authCfg.securityQ  || '',
+      securityA:  securityA  || authCfg.securityA  || '',
+    };
+    // Write to Firebase — syncs across all browsers
+    try { db.ref('authConfig').set(cfg); } catch (e) {}
+    // Keep localStorage mirror for offline fallback
+    saveAuthConfig(cfg);
+    ctxSetAuthCfg && ctxSetAuthCfg(cfg);
+    setAdminPass(''); setViewerPass(''); setSecurityQ(''); setSecurityA('');
+    setAuthSaved(true);
+    setTimeout(() => setAuthSaved(false), 2000);
+  };
+
+  const disableAuth = () => {
+    const cfg = { enabled: false, adminPass: '', viewerPass: '', securityQ: '', securityA: '' };
+    try { db.ref('authConfig').set(cfg); } catch (e) {}
+    saveAuthConfig(cfg);
+    ctxSetAuthCfg && ctxSetAuthCfg(cfg);
+    setAdminPass(''); setViewerPass(''); setSecurityQ(''); setSecurityA('');
+  };
+
+  const sendInvite = (role) => {
+    const cfg = authCfg;
+    const pass = role === 'admin' ? cfg.adminPass : cfg.viewerPass;
+    const url  = window.location.href;
+    const subject = encodeURIComponent('Innovation Tool Erişim Daveti');
+    const body = encodeURIComponent(
+      `Merhaba,\n\nİnovation Tool'a davet edildiniz.\n\n` +
+      `🔗 Adres: ${url}\n` +
+      `🔑 Şifre: ${pass}\n` +
+      `👤 Rol: ${role === 'admin' ? 'Yönetici (Admin)' : 'Görüntüleyici (Viewer)'}\n\n` +
+      `Aracı açtığınızda şifreyi girerek giriş yapabilirsiniz.`
+    );
+    window.open(`mailto:${encodeURIComponent(inviteEmail.trim())}?subject=${subject}&body=${body}`);
+    setInviteMsg(`${role === 'admin' ? 'Admin' : 'Viewer'} daveti e-posta istemcisinde açıldı`);
+    setTimeout(() => setInviteMsg(''), 3000);
+  };
+
+  return (
+    <Modal isOpen onClose={onClose} title="⚙️ Ayarlar" size="lg">
+      <div className="border-b border-slate-100">
+        <div className="flex px-2 overflow-x-auto">
+          {[
+            { id: 'pipeline',  label: '🔷 Pipeline' },
+            { id: 'canvases',  label: '🗂️ Canvas Şablonları' },
+            { id: 'auth',      label: '🔐 Erişim Yönetimi' },
+            { id: 'data',      label: '💾 Veri' },
+          ].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`px-5 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                tab === t.id ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="p-6">
+        {/* ── Pipeline tab ── */}
+        {tab === 'pipeline' && (
+          <div>
+            <p className="text-sm text-slate-500 mb-5">
+              Adımları ekleyin, yeniden adlandırın, renk değiştirin veya sıralayın.
+            </p>
+            <div className="space-y-2 mb-6">
+              {state.stages.map((stage, i) => (
+                <div key={stage.id}
+                  className="flex items-center gap-2 bg-white rounded-xl p-3 border border-slate-200 shadow-sm">
+                  {editId === stage.id ? (
+                    <div className="flex-1 space-y-2">
+                      <input value={editName} onChange={e => setEditName(e.target.value)}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
+                      <ColorPicker value={editColor} onChange={setEditColor} />
+                      <div className="flex gap-2">
+                        <button onClick={() => {
+                          dispatch({ type: 'UPDATE_STAGE', id: editId, updates: { name: editName, color: editColor } });
+                          setEditId(null);
+                        }} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium">Kaydet</button>
+                        <button onClick={() => setEditId(null)}
+                          className="px-3 py-1.5 bg-slate-200 rounded-lg text-xs">İptal</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Reorder arrows */}
+                      <div className="flex flex-col gap-0.5 flex-shrink-0">
+                        <button onClick={() => moveStage(i, -1)} disabled={i === 0}
+                          className="w-5 h-5 flex items-center justify-center text-slate-300 hover:text-slate-600 disabled:opacity-20 disabled:cursor-not-allowed text-xs">▲</button>
+                        <button onClick={() => moveStage(i, 1)} disabled={i === state.stages.length - 1}
+                          className="w-5 h-5 flex items-center justify-center text-slate-300 hover:text-slate-600 disabled:opacity-20 disabled:cursor-not-allowed text-xs">▼</button>
+                      </div>
+                      <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ background: stage.color }} />
+                      <span className="text-xs text-slate-400 w-5 text-center flex-shrink-0">{i + 1}</span>
+                      <span className="flex-1 text-sm font-medium text-slate-700">{stage.name}</span>
+                      <button onClick={() => { setEditId(stage.id); setEditName(stage.name); setEditColor(stage.color); }}
+                        className="text-xs text-slate-400 hover:text-indigo-600 px-2 py-1 rounded hover:bg-slate-50">Düzenle</button>
+                      {state.stages.length > 1 && (
+                        <button onClick={() => {
+                          if (confirm(`"${stage.name}" adımını silmek istiyor musunuz?`))
+                            dispatch({ type: 'DELETE_STAGE', id: stage.id });
+                        }} className="text-xs text-red-400 hover:text-red-600 px-2 py-1 rounded hover:bg-red-50">Sil</button>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <h4 className="text-sm font-semibold text-slate-700 mb-3">Yeni Adım Ekle</h4>
+              <div className="flex gap-2 mb-3">
+                <input value={newName} onChange={e => setNewName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addStage()}
+                  placeholder="Adım adı" className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
+                <button onClick={addStage}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">Ekle</button>
+              </div>
+              <ColorPicker value={newColor} onChange={setNewColor} />
+            </div>
+          </div>
+        )}
+
+        {/* ── Canvas templates tab ── */}
+        {tab === 'canvases' && (
+          <CanvasTemplatesManager templates={state.canvasTemplates} dispatch={dispatch} />
+        )}
+
+        {/* ── Auth tab ── */}
+        {tab === 'auth' && (
+          <div className="space-y-5">
+            <div className="bg-blue-50 rounded-xl p-4 border border-blue-200 text-sm text-blue-800">
+              <p className="font-semibold mb-1">ℹ️ Erişim Yönetimi Hakkında</p>
+              <p className="text-xs text-blue-700 leading-relaxed">
+                Şifre belirlediğinizde, araç açıldığında giriş ekranı gösterilir.
+                <b> Admin</b> tam yetkiyle, <b>Viewer</b> yalnızca görüntüleme yetkisiyle girer.
+                Şifreleri e-posta ile paylaşmak için aşağıdaki davet butonlarını kullanın.
+              </p>
+            </div>
+
+            <div className="bg-white rounded-xl p-4 border border-slate-200">
+              <label className="block text-sm font-semibold text-slate-700 mb-1">📧 Davet Gönderilecek E-posta</label>
+              <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
+                placeholder="ornek@sirket.com"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
+              <p className="text-xs text-slate-400 mt-1">Davet butonuna basınca bu adrese e-posta taslağı açılır</p>
+            </div>
+
+            <div className="space-y-3">
+              <div className="bg-white rounded-xl p-4 border border-slate-200">
+                <label className="block text-sm font-semibold text-slate-700 mb-1">
+                  🔑 Admin Şifresi
+                  {authCfg.adminPass && <span className="ml-2 text-xs text-green-600 font-normal">✓ Ayarlanmış</span>}
+                </label>
+                <div className="flex gap-2">
+                  <input type="password" value={adminPass} onChange={e => setAdminPass(e.target.value)}
+                    placeholder={authCfg.adminPass ? 'Değiştirmek için yeni şifre girin' : 'Admin şifresi belirleyin'}
+                    className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
+                  {authCfg.adminPass && (
+                    <button onClick={() => sendInvite('admin')}
+                      className="px-3 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-medium hover:bg-indigo-100 whitespace-nowrap">
+                      ✉️ Davet Gönder
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl p-4 border border-slate-200">
+                <label className="block text-sm font-semibold text-slate-700 mb-1">
+                  👁️ Viewer Şifresi
+                  {authCfg.viewerPass && <span className="ml-2 text-xs text-green-600 font-normal">✓ Ayarlanmış</span>}
+                </label>
+                <div className="flex gap-2">
+                  <input type="password" value={viewerPass} onChange={e => setViewerPass(e.target.value)}
+                    placeholder={authCfg.viewerPass ? 'Değiştirmek için yeni şifre girin' : 'Viewer şifresi belirleyin'}
+                    className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
+                  {authCfg.viewerPass && (
+                    <button onClick={() => sendInvite('viewer')}
+                      className="px-3 py-2 bg-slate-50 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-100 whitespace-nowrap">
+                      ✉️ Davet Gönder
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {inviteMsg && (
+              <div className="bg-green-50 text-green-700 text-sm px-4 py-2.5 rounded-xl border border-green-200">
+                ✅ {inviteMsg}
+              </div>
+            )}
+
+            <div className="bg-amber-50 rounded-xl p-4 border border-amber-200 space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-amber-900">🔐 Şifremi Unuttum — Güvenlik Sorusu</p>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  Admin şifrenizi unuttuğunuzda giriş ekranında bu soruya doğru yanıt vererek yeni şifre belirleyebilirsiniz.
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-amber-900 mb-1">Soru</label>
+                <input type="text" value={securityQ} onChange={e => setSecurityQ(e.target.value)}
+                  placeholder={authCfg.securityQ || 'Örn: İlk evcil hayvanınızın adı?'}
+                  className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-amber-400" />
+                {authCfg.securityQ && !securityQ && (
+                  <p className="text-xs text-amber-700 mt-1">Mevcut: <i>"{authCfg.securityQ}"</i></p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-amber-900 mb-1">
+                  Yanıt
+                  {authCfg.securityA && <span className="ml-2 text-green-600 font-normal">✓ Kayıtlı</span>}
+                </label>
+                <input type="text" value={securityA} onChange={e => setSecurityA(e.target.value)}
+                  placeholder={authCfg.securityA ? 'Değiştirmek için yeni yanıt girin' : 'Yanıtınızı girin (büyük/küçük harf önemsiz)'}
+                  className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-amber-400" />
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={saveAuth}
+                className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700">
+                {authSaved ? '✅ Kaydedildi' : 'Şifreleri Kaydet'}
+              </button>
+              {authCfg.enabled && (
+                <button onClick={disableAuth}
+                  className="px-4 py-2.5 bg-red-50 text-red-600 rounded-xl text-sm font-medium hover:bg-red-100 border border-red-200">
+                  Şifreleri Kaldır
+                </button>
+              )}
+            </div>
+
+            {authCfg.enabled && onLogout && (
+              <button onClick={() => { clearSession(); onLogout(); onClose(); }}
+                className="w-full py-2 text-sm text-slate-500 hover:text-slate-700 underline">
+                Oturumu Kapat
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* ── Data tab ── */}
+        {tab === 'data' && (
+          <div className="space-y-4">
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <h4 className="text-sm font-semibold text-slate-700 mb-1">Veriyi Dışa Aktar</h4>
+              <p className="text-xs text-slate-500 mb-3">Tüm verileri JSON formatında indirin.</p>
+              <button onClick={() => {
+                const data = localStorage.getItem(STORAGE_KEY) || '{}';
+                const blob = new Blob([data], { type: 'application/json' });
+                const url  = URL.createObjectURL(blob);
+                const a    = document.createElement('a');
+                a.href = url; a.download = `innovation-tool-${new Date().toISOString().slice(0,10)}.json`;
+                a.click(); URL.revokeObjectURL(url);
+              }} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
+                📥 JSON İndir
+              </button>
+            </div>
+
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <h4 className="text-sm font-semibold text-slate-700 mb-1">Veriyi İçe Aktar</h4>
+              <p className="text-xs text-slate-500 mb-3">Daha önce dışa aktarılan JSON'u yükleyin.</p>
+              <input type="file" accept=".json" className="text-sm text-slate-600"
+                onChange={e => {
+                  const file = e.target.files[0]; if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = ev => {
+                    try {
+                      JSON.parse(ev.target.result);
+                      if (confirm('Mevcut verinin üzerine yazılacak. Devam?')) {
+                        localStorage.setItem(STORAGE_KEY, ev.target.result);
+                        alert('Veri yüklendi! Sayfa yenilenecek.');
+                        window.location.reload();
+                      }
+                    } catch { alert('Geçersiz JSON!'); }
+                  };
+                  reader.readAsText(file);
+                }} />
+            </div>
+
+            <div className="bg-red-50 rounded-xl p-4 border border-red-200">
+              <h4 className="text-sm font-semibold text-red-700 mb-1">Tüm Veriyi Sıfırla</h4>
+              <p className="text-xs text-red-500 mb-3">Geri alınamaz. Tüm fikirler ve veriler silinir.</p>
+              <button onClick={() => {
+                if (confirm('Emin misiniz?') && confirm('Son onay: Bu işlem GERİ ALINAMAZ!')) {
+                  localStorage.removeItem(STORAGE_KEY);
+                  window.location.reload();
+                }
+              }} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700">
+                🗑️ Sıfırla
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// ── Login screen ───────────────────────────────────────────────────────
+// ── Export helpers ─────────────────────────────────────────────────────
+const EVAL_LABELS_EX = { approved: '✅ Onaylandı', 'on-hold': '⏸️ Beklemede', rejected: '❌ Reddedildi' };
+const NOTE_LABELS_EX = {
+  text: 'Not', 'customer-feedback': 'Müşteri Geri Bildirimi',
+  'potential-customer': 'Potansiyel Müşteri', mvp: 'MVP Süreci',
+  'mvp-feedback': 'MVP Geri Bildirimi', feasibility: 'Fizibilite', link: 'Link/Dosya',
+};
+
+function makeSheetName(title, usedSet) {
+  let base = (title || 'Fikir').replace(/[\\\/\?\*\[\]:]/g, '').trim().slice(0, 27) || 'Fikir';
+  let name = base; let i = 2;
+  while (usedSet.has(name)) name = `${base.slice(0, 24)}_${i++}`;
+  usedSet.add(name);
+  return name;
+}
+
+function doExcelExport(state) {
+  if (!window.XLSX) { alert('Excel kütüphanesi henüz yüklenmedi, lütfen sayfayı yenileyip tekrar deneyin.'); return; }
+  const XL = window.XLSX;
+  const wb = XL.utils.book_new();
+  const stages = [...state.stages].sort((a, b) => a.order - b.order);
+
+  // Build sheetName map
+  const usedSet = new Set(['Pipeline Özeti']);
+  const nameMap = {};
+  state.ideas.forEach(idea => { nameMap[idea.id] = makeSheetName(idea.title, usedSet); });
+
+  // ── Ana Sheet ───────────────────────────────────────────────────────
+  const aoa = [
+    ['Innovation Pipeline Raporu', '', '', '', '', ''],
+    [`Tarih: ${new Date().toLocaleDateString('tr-TR')}  |  Toplam Fikir: ${state.ideas.length}`, '', '', '', '', ''],
+    [],
+  ];
+  let rIdx = 3;
+  const links = [];
+
+  stages.forEach(stage => {
+    const ideas = state.ideas.filter(i => i.stageId === stage.id);
+    aoa.push([`▌ ${stage.name}  (${ideas.length} fikir)`, '', '', '', '', '']);
+    rIdx++;
+    aoa.push(['Fikir Adı', 'Tanım', 'Sorumlu', 'Değerlendirme', 'Not', 'Canvas']);
+    rIdx++;
+    ideas.forEach(idea => {
+      const ev = Object.values(idea.stageData || {}).map(sd => sd.evaluation).find(e => e?.result);
+      const nc = Object.values(idea.stageData || {}).reduce((a, sd) => a + (sd.notes?.length || 0), 0);
+      links.push({ r: rIdx, c: 0, target: `#'${nameMap[idea.id]}'!A1` });
+      aoa.push([idea.title, idea.tagline || '', idea.owner || '',
+        ev ? (EVAL_LABELS_EX[ev.result] || '') : '', nc || '', (idea.canvases || []).length || '']);
+      rIdx++;
+    });
+    if (!ideas.length) { aoa.push(['(henüz fikir yok)', '', '', '', '', '']); rIdx++; }
+    aoa.push([]); rIdx++;
+  });
+
+  const mainWs = XL.utils.aoa_to_sheet(aoa);
+  mainWs['!cols'] = [{ wch: 36 }, { wch: 42 }, { wch: 18 }, { wch: 17 }, { wch: 6 }, { wch: 8 }];
+  links.forEach(({ r, c, target }) => {
+    const ref = XL.utils.encode_cell({ r, c });
+    if (mainWs[ref]) mainWs[ref].l = { Target: target };
+  });
+  XL.utils.book_append_sheet(wb, mainWs, 'Pipeline Özeti');
+
+  // ── Kart Sheet'leri ─────────────────────────────────────────────────
+  state.ideas.forEach(idea => {
+    const stageName = state.stages.find(s => s.id === idea.stageId)?.name || '-';
+    const sn = nameMap[idea.id];
+    const rows = [
+      ['FİKİR', idea.title], ['ADIM', stageName],
+      ['SORUMLU', idea.owner || '-'], ['KISA TANIM', idea.tagline || '-'],
+      ['AÇIKLAMA', idea.description || '-'],
+      ['OLUŞTURULDU', new Date(idea.createdAt).toLocaleDateString('tr-TR')],
+      [],
+    ];
+
+    // Canvas
+    (idea.canvases || []).forEach(canvas => {
+      rows.push([`◆ CANVAS: ${canvas.name}`, '']);
+      rows.push(['Bölüm', 'İçerik']);
+      canvas.sections.forEach(s => rows.push([s.name, s.content || '']));
+      rows.push([]);
+    });
+
+    // Notlar
+    const allNotes = Object.entries(idea.stageData || {}).flatMap(([sid, sd]) => {
+      const sn2 = state.stages.find(s => s.id === sid)?.name || sid;
+      return (sd.notes || []).map(n => ({ sn2, n }));
+    });
+    if (allNotes.length) {
+      rows.push(['◆ NOTLAR', '', '', '']);
+      rows.push(['Adım', 'Tür', 'İçerik', 'Tarih']);
+      allNotes.forEach(({ sn2, n }) => rows.push([
+        sn2, NOTE_LABELS_EX[n.type] || n.type,
+        n.file ? `[Dosya: ${n.file.name}]` : (n.content || ''),
+        new Date(n.createdAt).toLocaleDateString('tr-TR'),
+      ]));
+      rows.push([]);
+    }
+
+    // Değerlendirmeler
+    const evList = Object.entries(idea.stageData || {})
+      .filter(([, sd]) => sd.evaluation?.result)
+      .map(([sid, sd]) => ({ sn2: state.stages.find(s => s.id === sid)?.name || sid, ev: sd.evaluation }));
+    if (evList.length) {
+      rows.push(['◆ DEĞERLENDİRMELER', '', '', '', '']);
+      rows.push(['Adım', 'Sonuç', 'Özet', 'Sonraki Adımlar', 'Tarih']);
+      evList.forEach(({ sn2, ev }) => rows.push([
+        sn2, EVAL_LABELS_EX[ev.result] || ev.result, ev.summary || '', ev.nextSteps || '',
+        ev.evaluatedAt ? new Date(ev.evaluatedAt).toLocaleDateString('tr-TR') : '',
+      ]));
+    }
+
+    const ws = XL.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 22 }, { wch: 20 }, { wch: 58 }, { wch: 20 }, { wch: 14 }];
+    if (ws['A1']) ws['A1'].l = { Target: "#'Pipeline Özeti'!A1" };
+    XL.utils.book_append_sheet(wb, ws, sn);
+  });
+
+  XL.writeFile(wb, `innovation-pipeline-${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+function doPptExport(state) {
+  if (!window.PptxGenJS) { alert('PowerPoint kütüphanesi henüz yüklenmedi, lütfen sayfayı yenileyip tekrar deneyin.'); return; }
+  const pptx = new window.PptxGenJS();
+  pptx.defineLayout({ name: 'WIDE', width: 13.33, height: 7.5 });
+  pptx.layout = 'WIDE';
+
+  const stages = [...state.stages].sort((a, b) => a.order - b.order);
+  const BRAND = '4F46E5'; const DARK = '1E293B'; const MID = '64748B';
+  const hex = c => (c || '#64748B').replace('#', '');
+
+  // ── Kapak slaytı ────────────────────────────────────────────────────
+  const cover = pptx.addSlide();
+  cover.background = { color: BRAND };
+  cover.addText('Innovation', { x: 0.5, y: 2.0, w: 12.33, h: 1.1, fontSize: 52, bold: true, color: 'FFFFFF', align: 'center' });
+  cover.addText('Pipeline', { x: 0.5, y: 3.0, w: 12.33, h: 1.1, fontSize: 52, bold: true, color: 'C7D2FE', align: 'center' });
+  cover.addText(
+    `${new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}  ·  ${state.ideas.length} Fikir  ·  ${stages.length} Adım`,
+    { x: 0.5, y: 4.3, w: 12.33, h: 0.5, fontSize: 15, color: 'A5B4FC', align: 'center' }
+  );
+
+  // ── Pipeline özet slaytı ─────────────────────────────────────────────
+  const ov = pptx.addSlide();
+  ov.background = { color: 'F8FAFC' };
+  ov.addText('Pipeline Özeti', { x: 0.4, y: 0.22, w: 12.5, h: 0.6, fontSize: 22, bold: true, color: BRAND });
+
+  const cols = Math.min(stages.length, 6);
+  const colW = 12.5 / cols;
+  stages.slice(0, 6).forEach((stage, i) => {
+    const ideas = state.ideas.filter(id => id.stageId === stage.id);
+    const x = 0.4 + i * colW;
+    ov.addText(stage.name, {
+      x, y: 0.92, w: colW - 0.12, h: 0.42,
+      fontSize: 10, bold: true, color: 'FFFFFF',
+      fill: { color: hex(stage.color) }, align: 'center', valign: 'middle',
+    });
+    const bullets = ideas.map(id => ({ text: `• ${id.title.slice(0, 34)}\n`, options: { fontSize: 9, color: DARK } }));
+    if (!bullets.length) bullets.push({ text: '(boş)', options: { fontSize: 9, color: MID, italic: true } });
+    ov.addText(bullets, { x, y: 1.4, w: colW - 0.12, h: 5.7, valign: 'top' });
+  });
+
+  // ── Kart slaytları ───────────────────────────────────────────────────
+  const PAGE_W = 13.33, PAGE_H = 7.5, PAD = 0.35;
+  const CONTENT_W = PAGE_W - PAD * 2;
+  const stageById = id => state.stages.find(s => s.id === id);
+
+  state.ideas.forEach(idea => {
+    const stage = stageById(idea.stageId);
+    const sl = pptx.addSlide();
+    sl.background = { color: 'FFFFFF' };
+
+    // Üst başlık bar
+    sl.addShape('rect', { x: 0, y: 0, w: PAGE_W, h: 0.85, fill: { color: hex(stage?.color) }, line: { color: hex(stage?.color), width: 0 } });
+    sl.addText(idea.title, { x: PAD, y: 0.10, w: 9.6, h: 0.65, fontSize: 20, bold: true, color: 'FFFFFF' });
+    if (stage) sl.addText(`📍 ${stage.name}`, {
+      x: 10.0, y: 0.12, w: PAGE_W - 10.0 - PAD, h: 0.32,
+      fontSize: 11, color: 'E0E7FF', align: 'right',
+    });
+    // Tags right under stage name (top-right)
+    const tagList = Array.isArray(idea.tags) ? idea.tags : [];
+    if (tagList.length) {
+      sl.addText(tagList.map(t => `#${t}`).join('  '), {
+        x: 8.0, y: 0.45, w: PAGE_W - 8.0 - PAD, h: 0.32,
+        fontSize: 9, color: 'FFFFFF', align: 'right', italic: true,
+      });
+    }
+
+    // Meta satırı: tagline (kartta görünür) başlığın hemen altında,
+    // sonra açıklama (description), sonra owner
+    let metaY = 0.92;
+    if (idea.tagline) {
+      sl.addText(idea.tagline, {
+        x: PAD, y: metaY, w: CONTENT_W, h: 0.32,
+        fontSize: 13, bold: true, color: DARK,
+      });
+      metaY += 0.36;
+    }
+    if (idea.description) {
+      sl.addText(idea.description, {
+        x: PAD, y: metaY, w: CONTENT_W, h: 0.28,
+        fontSize: 10.5, italic: true, color: MID,
+      });
+      metaY += 0.32;
+    }
+    if (idea.owner) {
+      sl.addText(`👤 ${idea.owner}`, {
+        x: PAD, y: metaY, w: CONTENT_W, h: 0.26,
+        fontSize: 10, color: MID,
+      });
+      metaY += 0.3;
+    }
+
+    // Layout: üstte Next Step (sol) + Notlar (sağ), altta Canvas
+    const topY      = metaY + 0.05;
+    const topH      = 2.7;
+    const topBottom = topY + topH;
+    const midGap    = 0.15;
+
+    // ── ÜST-SOL: Next Step ──
+    const leftX = PAD;
+    const leftW = (CONTENT_W - midGap) / 2;
+    sl.addText('➡️ Next Step', {
+      x: leftX, y: topY, w: leftW, h: 0.28,
+      fontSize: 12, bold: true, color: BRAND,
+    });
+    sl.addShape('roundRect', {
+      x: leftX, y: topY + 0.32, w: leftW, h: topH - 0.32,
+      fill: { color: 'EEF2FF' },
+      line: { color: 'C7D2FE', width: 0.75 },
+      rectRadius: 0.08,
+    });
+    const nextStepText = (idea.nextStep || '').trim() ||
+      'Bu fikir için henüz bir sonraki adım belirlenmemiş.';
+    sl.addText(nextStepText, {
+      x: leftX + 0.15, y: topY + 0.42, w: leftW - 0.3, h: topH - 0.48,
+      fontSize: 11, color: idea.nextStep ? DARK : MID,
+      italic: !idea.nextStep, valign: 'top',
+    });
+
+    // ── ÜST-SAĞ: Notlar & Değerlendirmeler ──
+    const rightX = leftX + leftW + midGap;
+    const rightW = leftW;
+    const allNotesTop = Object.entries(idea.stageData || {}).flatMap(([sid, sd]) =>
+      (sd.notes || []).map(n => {
+        const st = stageById(sid);
+        return { sName: st?.name || '', sColor: hex(st?.color), n };
+      })
+    );
+    const evListTop = Object.entries(idea.stageData || {})
+      .filter(([, sd]) => sd.evaluation?.result)
+      .map(([sid, sd]) => ({ sName: stageById(sid)?.name || '', ev: sd.evaluation }));
+
+    sl.addText('📝 Notlar & Değerlendirmeler', {
+      x: rightX, y: topY, w: rightW, h: 0.28,
+      fontSize: 12, bold: true, color: BRAND,
+    });
+
+    const noteItems = [
+      ...allNotesTop.map(({ sName, sColor, n }) => ({
+        tag: sName || 'Not', color: sColor || '4F46E5', bg: 'F8FAFC',
+        body: n.content || (n.file ? `📎 ${n.file.name}` : ''),
+      })),
+      ...evListTop.map(({ sName, ev }) => {
+        const c = ev.result === 'approved' ? '10B981'
+                : ev.result === 'rejected' ? 'EF4444' : 'F59E0B';
+        const bg = ev.result === 'approved' ? 'ECFDF5'
+                 : ev.result === 'rejected' ? 'FEF2F2' : 'FFFBEB';
+        return {
+          tag: `${sName} · ${EVAL_LABELS_EX[ev.result] || ''}`,
+          color: c, bg, body: ev.summary || '',
+        };
+      }),
+    ];
+
+    const notesBlockY = topY + 0.32;
+    const notesBlockH = topH - 0.32;
+
+    if (!noteItems.length) {
+      sl.addShape('roundRect', {
+        x: rightX, y: notesBlockY, w: rightW, h: notesBlockH,
+        fill: { color: 'F8FAFC' }, line: { color: 'E2E8F0', width: 0.75 },
+        rectRadius: 0.08,
+      });
+      sl.addText('Bu fikre henüz not veya değerlendirme eklenmemiş.', {
+        x: rightX + 0.1, y: notesBlockY, w: rightW - 0.2, h: notesBlockH,
+        fontSize: 10, italic: true, color: MID, align: 'center', valign: 'middle',
+      });
+    } else {
+      const maxItems = Math.min(noteItems.length, 6);
+      const nCols = maxItems <= 2 ? maxItems : (maxItems <= 4 ? 2 : 3);
+      const nRows = Math.ceil(maxItems / nCols);
+      const nGap  = 0.1;
+      const nW = (rightW - nGap * (nCols - 1)) / nCols;
+      const nH = (notesBlockH - nGap * (nRows - 1)) / nRows;
+
+      for (let i = 0; i < maxItems; i++) {
+        const it = noteItems[i];
+        const r = Math.floor(i / nCols), c = i % nCols;
+        const x = rightX + c * (nW + nGap);
+        const y = notesBlockY + r * (nH + nGap);
+        sl.addShape('roundRect', {
+          x, y, w: nW, h: nH,
+          fill: { color: it.bg }, line: { color: it.color, width: 0.75 },
+          rectRadius: 0.06,
+        });
+        sl.addText(it.tag, {
+          x: x + 0.08, y: y + 0.04, w: nW - 0.16, h: 0.22,
+          fontSize: 7.5, bold: true, color: it.color,
+        });
+        sl.addText((it.body || '—').slice(0, 220), {
+          x: x + 0.08, y: y + 0.26, w: nW - 0.16, h: nH - 0.3,
+          fontSize: 8, color: DARK, valign: 'top',
+        });
+      }
+      if (noteItems.length > maxItems) {
+        sl.addText(`+${noteItems.length - maxItems} daha…`, {
+          x: rightX, y: topBottom - 0.22, w: rightW, h: 0.18,
+          fontSize: 7.5, italic: true, color: MID, align: 'right',
+        });
+      }
+    }
+
+    // ── ALTTA: Canvas kutu grid ──
+    const canvas = (idea.canvases || [])[0];
+    const canvasTop    = topBottom + 0.2;
+    const canvasBottom = 7.15;
+
+    if (canvas && canvas.sections && canvas.sections.length) {
+      sl.addText(`📋 ${canvas.name}`, {
+        x: PAD, y: canvasTop, w: CONTENT_W, h: 0.3,
+        fontSize: 12, bold: true, color: BRAND,
+      });
+      const gridTop = canvasTop + 0.35;
+      const gridH   = canvasBottom - gridTop;
+
+      const secs = canvas.sections;
+      const n = secs.length;
+      const cols = n <= 3 ? n : (n <= 6 ? 3 : (n <= 8 ? 4 : 3));
+      const rows = Math.ceil(n / cols);
+      const gapX = 0.12, gapY = 0.12;
+      const boxW = (CONTENT_W - gapX * (cols - 1)) / cols;
+      const boxH = (gridH - gapY * (rows - 1)) / rows;
+
+      secs.forEach((sec, i) => {
+        const r = Math.floor(i / cols), c = i % cols;
+        const x = PAD + c * (boxW + gapX);
+        const y = gridTop + r * (boxH + gapY);
+
+        // Kutu arka planı
+        sl.addShape('roundRect', {
+          x, y, w: boxW, h: boxH,
+          fill: { color: 'F8FAFC' },
+          line: { color: 'E2E8F0', width: 0.75 },
+          rectRadius: 0.06,
+        });
+        // Başlık şeridi
+        sl.addShape('rect', {
+          x, y, w: boxW, h: 0.28,
+          fill: { color: 'EEF2FF' },
+          line: { color: 'EEF2FF', width: 0 },
+        });
+        sl.addText(sec.name, {
+          x: x + 0.08, y: y + 0.02, w: boxW - 0.16, h: 0.24,
+          fontSize: 9, bold: true, color: BRAND,
+        });
+
+        const hasImg = !!sec.image;
+        const contentY = y + 0.32;
+        const contentH = boxH - 0.36;
+
+        if (hasImg && sec.content) {
+          // Yarı yarıya: görsel solda, metin sağda
+          const halfW = (boxW - 0.24) / 2;
+          try {
+            sl.addImage({
+              data: sec.image,
+              x: x + 0.08, y: contentY, w: halfW, h: contentH,
+              sizing: { type: 'contain', w: halfW, h: contentH },
+            });
+          } catch (e) {}
+          sl.addText(sec.content.slice(0, 220), {
+            x: x + 0.08 + halfW + 0.08, y: contentY, w: halfW, h: contentH,
+            fontSize: 8, color: DARK, valign: 'top',
+          });
+        } else if (hasImg) {
+          try {
+            sl.addImage({
+              data: sec.image,
+              x: x + 0.08, y: contentY, w: boxW - 0.16, h: contentH,
+              sizing: { type: 'contain', w: boxW - 0.16, h: contentH },
+            });
+          } catch (e) {}
+        } else if (sec.content) {
+          sl.addText(sec.content.slice(0, 340), {
+            x: x + 0.08, y: contentY, w: boxW - 0.16, h: contentH,
+            fontSize: 8.5, color: DARK, valign: 'top',
+          });
+        } else {
+          sl.addText('—', {
+            x: x + 0.08, y: contentY, w: boxW - 0.16, h: contentH,
+            fontSize: 9, italic: true, color: MID, valign: 'top',
+          });
+        }
+      });
+    } else if (idea.description) {
+      sl.addText(idea.description, {
+        x: PAD, y: canvasTop, w: CONTENT_W, h: canvasBottom - canvasTop,
+        fontSize: 11, color: DARK, valign: 'top',
+      });
+    }
+
+    // Footer
+    sl.addText(`Oluşturuldu: ${new Date(idea.createdAt).toLocaleDateString('tr-TR')}`,
+      { x: PAD, y: PAGE_H - 0.3, w: CONTENT_W, h: 0.25, fontSize: 7.5, color: MID, align: 'right' });
+  });
+
+  pptx.writeFile({ fileName: `innovation-pipeline-${new Date().toISOString().slice(0, 10)}.pptx` });
+}
+
+// ── Export menu component ──────────────────────────────────────────────
+function ExportMenu({ state }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy]   = useState('');
+  const ref = useRef();
+
+  useEffect(() => {
+    const close = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, []);
+
+  const run = (type) => {
+    setOpen(false); setBusy(type);
+    setTimeout(() => {
+      try { type === 'excel' ? doExcelExport(state) : doPptExport(state); }
+      catch (e) { alert('Export hatası: ' + e.message); }
+      setBusy('');
+    }, 80);
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen(o => !o)} disabled={!!busy}
+        className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 text-sm font-medium disabled:opacity-50 transition-colors">
+        {busy ? '⏳' : '📤'} {busy === 'excel' ? 'Excel…' : busy === 'ppt' ? 'PPT…' : 'Export'}
+        {!busy && <span className="text-slate-400 text-xs">▾</span>}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-11 bg-white rounded-xl shadow-xl border border-slate-100 py-1.5 z-50 min-w-[190px]">
+          <button onClick={() => run('excel')}
+            className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition-colors">
+            <span className="text-lg">📊</span>
+            <div><p className="font-medium">Excel'e Aktar</p><p className="text-xs text-slate-400">.xlsx dosyası</p></div>
+          </button>
+          <button onClick={() => run('ppt')}
+            className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition-colors">
+            <span className="text-lg">📑</span>
+            <div><p className="font-medium">PowerPoint'e Aktar</p><p className="text-xs text-slate-400">.pptx dosyası</p></div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Login screen ───────────────────────────────────────────────────────
+function LoginScreen({ onLogin, authCfg }) {
+  const [pass, setPass]     = useState('');
+  const [error, setError]   = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Forgot-password state
+  const [mode, setMode]       = useState('login'); // 'login' | 'recover'
+  const [answer, setAnswer]   = useState('');
+  const [newPass, setNewPass] = useState('');
+  const [newPass2, setNewPass2] = useState('');
+  const [recoverErr, setRecoverErr] = useState('');
+  const [recoverMsg, setRecoverMsg] = useState('');
+
+  const cfg = authCfg || getAuthConfig();
+  const hasSecurity = !!(cfg.securityQ && cfg.securityA);
+
+  const tryLogin = () => {
+    setError('');
+    setLoading(true);
+    setTimeout(() => {
+      setLoading(false);
+      if (cfg.adminPass && pass === cfg.adminPass) {
+        onLogin('admin');
+      } else if (cfg.viewerPass && pass === cfg.viewerPass) {
+        onLogin('viewer');
+      } else {
+        setError('Hatalı şifre. Lütfen tekrar deneyin.');
+        setPass('');
+      }
+    }, 300);
+  };
+
+  const tryRecover = () => {
+    setRecoverErr(''); setRecoverMsg('');
+    if (!answer.trim()) { setRecoverErr('Lütfen güvenlik sorusunu yanıtlayın.'); return; }
+    if (!newPass || newPass.length < 4) { setRecoverErr('Yeni şifre en az 4 karakter olmalı.'); return; }
+    if (newPass !== newPass2) { setRecoverErr('İki şifre alanı eşleşmiyor.'); return; }
+    const ok = (cfg.securityA || '').trim().toLowerCase() === answer.trim().toLowerCase();
+    if (!ok) { setRecoverErr('Güvenlik sorusu yanıtı hatalı.'); return; }
+    const updated = { ...cfg, adminPass: newPass };
+    try { db.ref('authConfig').set(updated); } catch (e) {}
+    try { saveAuthConfig(updated); } catch (e) {}
+    setRecoverMsg('Admin şifresi sıfırlandı. Giriş yapılıyor…');
+    setTimeout(() => onLogin('admin'), 600);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm border border-slate-100">
+        <div className="text-center mb-8">
+          <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <span className="text-white text-xl font-black">IT</span>
+          </div>
+          <h1 className="text-2xl font-black text-slate-800">Innovation Tool</h1>
+          <p className="text-slate-500 text-sm mt-1">
+            {mode === 'login' ? 'Giriş yapmak için şifrenizi girin' : 'Admin şifresini sıfırla'}
+          </p>
+        </div>
+
+        {mode === 'login' ? (
+          <>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-slate-600 mb-1.5">Şifre</label>
+                <input
+                  type="password"
+                  value={pass}
+                  onChange={e => setPass(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && tryLogin()}
+                  autoFocus
+                  placeholder="••••••••"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+              </div>
+
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-2.5 rounded-xl">
+                  {error}
+                </div>
+              )}
+
+              <button onClick={tryLogin} disabled={loading || !pass}
+                className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {loading ? 'Giriş yapılıyor…' : 'Giriş Yap'}
+              </button>
+
+              {hasSecurity && (
+                <button onClick={() => { setMode('recover'); setError(''); setPass(''); }}
+                  className="w-full text-xs text-indigo-600 hover:text-indigo-700 font-medium pt-1">
+                  🔑 Admin şifremi unuttum
+                </button>
+              )}
+            </div>
+
+            <p className="text-xs text-slate-400 text-center mt-6">
+              Admin veya Viewer şifresi girin.<br />
+              Erişim için yöneticinizle iletişime geçin.
+            </p>
+          </>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+                Güvenlik Sorusu
+              </label>
+              <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-700">
+                {cfg.securityQ || '—'}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-600 mb-1.5">Yanıt</label>
+              <input type="text" value={answer} onChange={e => setAnswer(e.target.value)}
+                autoFocus placeholder="Yanıtınız"
+                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-600 mb-1.5">Yeni Admin Şifresi</label>
+              <input type="password" value={newPass} onChange={e => setNewPass(e.target.value)}
+                placeholder="En az 4 karakter"
+                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-600 mb-1.5">Yeni Şifre (Tekrar)</label>
+              <input type="password" value={newPass2} onChange={e => setNewPass2(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && tryRecover()}
+                placeholder="Tekrar girin"
+                className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+            </div>
+
+            {recoverErr && (
+              <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-2.5 rounded-xl">
+                {recoverErr}
+              </div>
+            )}
+            {recoverMsg && (
+              <div className="bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-2.5 rounded-xl">
+                {recoverMsg}
+              </div>
+            )}
+
+            <button onClick={tryRecover}
+              className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors">
+              Şifreyi Sıfırla ve Giriş Yap
+            </button>
+            <button onClick={() => { setMode('login'); setRecoverErr(''); setRecoverMsg(''); setAnswer(''); setNewPass(''); setNewPass2(''); }}
+              className="w-full text-xs text-slate-500 hover:text-slate-700">
+              ← Giriş ekranına dön
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Root App ───────────────────────────────────────────────────────────
+function App() {
+  const [state, dispatch] = useReducer(reducer, null, getInitialState);
+  const [openIdea, setOpenIdea]     = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showTagLib, setShowTagLib]     = useState(false);
+  const [search, setSearch]         = useState('');
+  const [role, setRole]             = useState(null);
+  const [dbLoading, setDbLoading]   = useState(true);
+  const [authCfg, setAuthCfg]       = useState(null); // null = loading
+  const [authChecked, setAuthChecked] = useState(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  // Firebase sync — appData
+  useEffect(() => {
+    const ref = db.ref('appData');
+    const handler = ref.on('value', snapshot => {
+      const data = snapshot.val();
+      if (data) {
+        dispatch({ type: 'SYNC_FROM_FIREBASE', data });
+      } else {
+        // Firebase appData is empty/null — possible causes:
+        //  (a) genuinely first run, or
+        //  (b) data was wiped/lost.
+        // We NEVER auto-overwrite from a stale localStorage anymore — that's
+        // exactly the failure mode that ate previous cards. Ask first.
+        const local = localStorage.getItem(STORAGE_KEY);
+        let seed = null;
+        try { seed = local ? JSON.parse(local) : null; } catch (e) {}
+        const hasLocalIdeas = seed && Array.isArray(seed.ideas) && seed.ideas.length > 0;
+        if (hasLocalIdeas) {
+          const ok = window.confirm(
+            'Buluttaki veri boş, ancak bu tarayıcıda ' + seed.ideas.length +
+            ' adet kart içeren yerel bir yedek bulundu.\n\n' +
+            'Yerel yedekten geri yüklensin mi?\n\n' +
+            'Tamam: yedeği Firebase\'e yaz (geri yükle)\n' +
+            'İptal: boş başlat (yerel yedek kaybolmaz, gerekirse sonra elle import edilebilir)'
+          );
+          if (ok) {
+            db.ref('appData').set({ ...seed, updatedAt: Date.now() });
+          } else {
+            db.ref('appData').set({ ...stateRef.current, updatedAt: Date.now() });
+          }
+        } else {
+          db.ref('appData').set({ ...stateRef.current, updatedAt: Date.now() });
+        }
+      }
+      setDbLoading(false);
+    });
+    return () => ref.off('value', handler);
+  }, []);
+
+  // Firebase sync — authConfig (shared across all browsers)
+  useEffect(() => {
+    const ref = db.ref('authConfig');
+    const handler = ref.on('value', snapshot => {
+      const data = snapshot.val();
+      setAuthCfg(data || { enabled: false, adminPass: '', viewerPass: '', securityQ: '', securityA: '' });
+    });
+    return () => ref.off('value', handler);
+  }, []);
+
+  // Auth gate — runs ONCE after authCfg loads.
+  // Every page load requires re-login (no session caching).
+  useEffect(() => {
+    if (!authCfg || authChecked) return;
+    clearSession(); // always wipe any stale session on load
+    if (!authCfg.enabled) setRole('admin');
+    else setRole('login');
+    setAuthChecked(true);
+  }, [authCfg, authChecked]);
+
+  const canEdit = role === 'admin';
+
+  const pipelineIdeas = state.ideas;
+
+  const searchResults = search
+    ? state.ideas.filter(i =>
+        i.title.toLowerCase().includes(search.toLowerCase()) ||
+        (i.tagline || '').toLowerCase().includes(search.toLowerCase()) ||
+        (i.description || '').toLowerCase().includes(search.toLowerCase()) ||
+        (i.tags || []).some(t => t.toLowerCase().includes(search.toLowerCase())) ||
+        (i.owner || '').toLowerCase().includes(search.toLowerCase())
+      )
+    : [];
+
+  const totalNotes = state.ideas.reduce((acc, i) =>
+    acc + Object.values(i.stageData || {}).reduce((a, sd) => a + (sd.notes?.length || 0), 0), 0);
+
+  const handleOpenIdea = idea => {
+    const latest = state.ideas.find(i => i.id === idea.id);
+    setOpenIdea(latest || idea);
+  };
+
+  const handleStageReorder = useCallback((fromId, toId) => {
+    if (fromId === toId) return;
+    const sorted = [...state.stages].sort((a, b) => a.order - b.order);
+    const fromIdx = sorted.findIndex(s => s.id === fromId);
+    const toIdx   = sorted.findIndex(s => s.id === toId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const updated = [...sorted];
+    const [removed] = updated.splice(fromIdx, 1);
+    updated.splice(toIdx, 0, removed);
+    dispatch({ type: 'REORDER_STAGES', stages: updated });
+  }, [state.stages, dispatch]);
+
+  // Loading screen
+  if (dbLoading || !authCfg) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg animate-pulse">
+            <span className="text-white text-xl font-black">IT</span>
+          </div>
+          <p className="text-slate-500 text-sm">Veriler yükleniyor…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Login screen
+  if (role === 'login' || role === null) {
+    if (role === null) return null;
+    return <LoginScreen onLogin={r => setRole(r)} authCfg={authCfg} />;
+  }
+
+  return (
+    <Ctx.Provider value={{ state, dispatch, authCfg, setAuthCfg }}>
+      {/* Top bar */}
+      <div className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+        <div className="px-6 py-3 flex items-center gap-4">
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-sm">
+              <span className="text-white text-sm font-black">IT</span>
+            </div>
+            <div>
+              <h1 className="font-black text-slate-800 text-lg leading-tight">Innovation Tool</h1>
+              <p className="text-xs text-slate-400 leading-tight">
+                {state.ideas.length} fikir · {totalNotes} not · {state.stages.length} adım
+              </p>
+            </div>
+          </div>
+
+          <div className="flex-1 max-w-md">
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
+              <input value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="Fikir, etiket veya sorumlu ara…"
+                className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-300 bg-slate-50 focus:bg-white transition-colors" />
+              {search && (
+                <button onClick={() => setSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+              )}
+            </div>
+          </div>
+
+          <div className="ml-auto flex items-center gap-2">
+            {role === 'viewer' && (
+              <span className="text-xs bg-amber-100 text-amber-700 px-3 py-1.5 rounded-full font-medium">
+                👁️ Görüntüleme
+              </span>
+            )}
+            {canEdit && (
+              <button onClick={() => setShowTagLib(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-xl hover:bg-indigo-100 text-sm font-medium">
+                🏷️ Tag Ekle
+              </button>
+            )}
+            {canEdit && <ExportMenu state={state} />}
+            {canEdit && (
+              <button onClick={() => setShowSettings(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-xl hover:bg-slate-200 text-sm font-medium">
+                ⚙️ Ayarlar
+              </button>
+            )}
+            {authCfg?.enabled && (
+              <button onClick={() => { clearSession(); setRole('login'); }}
+                className="text-xs px-3 py-2 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200">
+                Çıkış
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Main */}
+      <div className="p-6">
+        {search ? (
+          <div>
+            <h3 className="text-sm font-semibold text-slate-600 mb-4">
+              "{search}" için {searchResults.length} sonuç
+            </h3>
+            {searchResults.length === 0 ? (
+              <div className="text-center py-20 text-slate-400">
+                <p className="text-5xl mb-3">🔍</p>
+                <p>Sonuç bulunamadı</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                {searchResults.map(idea => (
+                  <IdeaCard key={idea.id} idea={idea} onOpen={handleOpenIdea} canEdit={canEdit} />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex gap-4 overflow-x-auto pb-6">
+            {state.stages.map(stage => (
+              <PipelineColumn
+                key={stage.id}
+                stage={stage}
+                ideas={pipelineIdeas.filter(i => i.stageId === stage.id)}
+                onOpen={handleOpenIdea}
+                canEdit={canEdit}
+                onStageReorder={canEdit ? handleStageReorder : null}
+              />
+            ))}
+            {canEdit && (
+              <div
+                onClick={() => setShowSettings(true)}
+                className="flex-shrink-0 w-[272px] rounded-2xl border-2 border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors group">
+                <div className="text-center text-slate-300 group-hover:text-indigo-400 p-8 transition-colors">
+                  <p className="text-3xl mb-2">＋</p>
+                  <p className="text-xs font-medium">Adım Ekle</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Modals */}
+      {openIdea && (
+        <IdeaDetailModal
+          idea={state.ideas.find(i => i.id === openIdea.id) || openIdea}
+          onClose={() => setOpenIdea(null)}
+          canEdit={canEdit}
+        />
+      )}
+      {showTagLib && (
+        <TagLibraryModal onClose={() => setShowTagLib(false)} />
+      )}
+      {showSettings && (
+        <SettingsModal
+          onClose={() => setShowSettings(false)}
+          onLogout={() => setRole('login')}
+        />
+      )}
+    </Ctx.Provider>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>
