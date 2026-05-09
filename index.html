@@ -2872,13 +2872,28 @@ function doPptExport(state) {
 
   // ── Kart slaytları ───────────────────────────────────────────────────
   const PAGE_W = 13.33, PAGE_H = 7.5, PAD = 0.35;
+  // Slide numbering tracker — used for image hyperlinks (1-based).
+  // Cover = 1, Overview = 2, then idea slides (with detail slides interleaved).
+  let slideCount = 2;
   const CONTENT_W = PAGE_W - PAD * 2;
   const stageById = id => state.stages.find(s => s.id === id);
 
   state.ideas.forEach(idea => {
     const stage = stageById(idea.stageId);
     const sl = pptx.addSlide();
+    slideCount++;
+    const myIdeaSlideNum = slideCount;
     sl.background = { color: 'FFFFFF' };
+
+    // Pre-compute slide numbers for per-section image-detail slides so we
+    // can wire up hyperlinks before the detail slides actually exist.
+    const _canvasForLinks = (idea.canvases || [])[0];
+    const _sections       = _canvasForLinks?.sections || [];
+    const imgSlideNums    = new Map(); // section-index → detail slide number
+    let _detailCursor = slideCount;
+    _sections.forEach((sec, idx) => {
+      if (sec.image) { _detailCursor++; imgSlideNums.set(idx, _detailCursor); }
+    });
 
     // Üst başlık bar (stage rengi) + Experian magenta accent stripe altında
     sl.addShape('rect', { x: 0, y: 0, w: PAGE_W, h: 0.85, fill: { color: hex(stage?.color) }, line: { color: hex(stage?.color), width: 0 } });
@@ -2923,8 +2938,9 @@ function doPptExport(state) {
     }
 
     // Layout: üstte Next Step (sol) + Notlar (sağ), altta Canvas
+    // Top block kept compact so canvas grid below has breathing room.
     const topY      = metaY + 0.05;
-    const topH      = 2.7;
+    const topH      = 1.7;
     const topBottom = topY + topH;
     const midGap    = 0.15;
 
@@ -3080,6 +3096,11 @@ function doPptExport(state) {
         const contentY = y + 0.32;
         const contentH = boxH - 0.36;
 
+        const _detailSlideNum = imgSlideNums.get(i);
+        const _imgHyper = _detailSlideNum
+          ? { hyperlink: { slide: _detailSlideNum, tooltip: 'Tam boyut görüntülemek için tıklayın' } }
+          : {};
+
         if (hasImg && sec.content) {
           // Yarı yarıya: görsel solda, metin sağda
           const halfW = (boxW - 0.24) / 2;
@@ -3088,6 +3109,7 @@ function doPptExport(state) {
               data: sec.image,
               x: x + 0.08, y: contentY, w: halfW, h: contentH,
               sizing: { type: 'contain', w: halfW, h: contentH },
+              ..._imgHyper,
             });
           } catch (e) {}
           sl.addText(sec.content.slice(0, 220), {
@@ -3100,8 +3122,15 @@ function doPptExport(state) {
               data: sec.image,
               x: x + 0.08, y: contentY, w: boxW - 0.16, h: contentH,
               sizing: { type: 'contain', w: boxW - 0.16, h: contentH },
+              ..._imgHyper,
             });
           } catch (e) {}
+          // Click-to-enlarge hint pinned at bottom of the box
+          sl.addText('🔍 Büyüt', {
+            x: x + 0.08, y: y + boxH - 0.22, w: boxW - 0.16, h: 0.18,
+            fontSize: 7, italic: true, color: BRAND, align: 'right',
+            hyperlink: { slide: _detailSlideNum, tooltip: 'Tam boyut görüntüle' },
+          });
         } else if (sec.content) {
           sl.addText(sec.content.slice(0, 340), {
             x: x + 0.08, y: contentY, w: boxW - 0.16, h: contentH,
@@ -3128,6 +3157,42 @@ function doPptExport(state) {
     });
     sl.addText(`Oluşturuldu: ${new Date(idea.createdAt).toLocaleDateString('tr-TR')}`,
       { x: PAD + CONTENT_W / 2, y: PAGE_H - 0.3, w: CONTENT_W / 2, h: 0.25, fontSize: 7.5, color: MID, align: 'right' });
+
+    // ── Görsel detay slaytları ────────────────────────────────────────
+    // Her image içeren bölüm için tam boy bir detay slaytı; canvas
+    // grid'indeki thumbnail oraya hyperlinkli.
+    _sections.forEach((sec, idx) => {
+      if (!sec.image) return;
+      const ds = pptx.addSlide();
+      slideCount++;
+      ds.background = { color: 'FFFFFF' };
+      // Brand header
+      ds.addShape('rect', { x: 0, y: 0, w: PAGE_W, h: 0.6, fill: { color: BRAND }, line: { color: BRAND, width: 0 } });
+      ds.addShape('rect', { x: 0, y: 0.6, w: PAGE_W, h: 0.04, fill: { color: ACCENT }, line: { color: ACCENT, width: 0 } });
+      ds.addText(`${idea.title}  ·  ${sec.name}`, {
+        x: PAD, y: 0.12, w: CONTENT_W - 1.8, h: 0.4,
+        fontSize: 16, bold: true, color: 'FFFFFF', fontFace: 'Arial',
+      });
+      // Back-link
+      ds.addText('← Karta dön', {
+        x: PAGE_W - PAD - 1.8, y: 0.18, w: 1.8, h: 0.3,
+        fontSize: 11, color: 'FFFFFF', align: 'right',
+        hyperlink: { slide: myIdeaSlideNum, tooltip: 'Karta geri dön' },
+      });
+      // Full-bleed image
+      const imgY = 0.85, imgH = PAGE_H - 1.2;
+      try {
+        ds.addImage({
+          data: sec.image,
+          x: PAD, y: imgY, w: CONTENT_W, h: imgH,
+          sizing: { type: 'contain', w: CONTENT_W, h: imgH },
+        });
+      } catch (e) {}
+      ds.addText('Experian Innovation Framework', {
+        x: PAD, y: PAGE_H - 0.3, w: CONTENT_W, h: 0.25,
+        fontSize: 8, color: BRAND, italic: true, align: 'right', fontFace: 'Arial',
+      });
+    });
   });
 
   pptx.writeFile({ fileName: `innovation-pipeline-${new Date().toISOString().slice(0, 10)}.pptx` });
