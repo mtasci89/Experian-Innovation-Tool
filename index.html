@@ -3,8 +3,66 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Innovation Tool</title>
+  <title>Experian Innovation Tool</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Experian brand palette — remaps Tailwind indigo/purple to Experian colors
+    // so the entire app inherits Experian branding without touching hundreds of classNames.
+    // Source: Experian Turkey Innovation Framework deck.
+    //   Experian Blue:   #1D4F91 (primary)
+    //   Mid Blue:        #426DA9
+    //   Magenta/Pink:    #E80070
+    //   Pink:            #C1188B
+    //   Deep Purple:     #77127B
+    //   Slate Gray:      #495765 / #8F97A0
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            indigo: {
+              50:  '#EAF1FB',
+              100: '#D5E2F4',
+              200: '#A8C2E5',
+              300: '#7CA2D7',
+              400: '#5083C8',
+              500: '#426DA9',
+              600: '#1D4F91',
+              700: '#173F75',
+              800: '#122F58',
+              900: '#0C1F3B',
+            },
+            purple: {
+              50:  '#FCEAF3',
+              100: '#F8D5E7',
+              200: '#F1A8CE',
+              300: '#E97AB5',
+              400: '#E0479C',
+              500: '#C1188B',
+              600: '#A6147E',
+              700: '#77127B',
+              800: '#5E0E62',
+              900: '#460A49',
+            },
+            experian: {
+              blue:    '#1D4F91',
+              blueMid: '#426DA9',
+              magenta: '#E80070',
+              pink:    '#C1188B',
+              purple:  '#77127B',
+              gray:    '#495765',
+              grayLt:  '#8F97A0',
+            },
+          },
+          fontFamily: {
+            sans: ['"Inter"', '"Segoe UI"', 'Arial', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -14,15 +72,37 @@
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #f1f5f9; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb { background: #A8C2E5; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #426DA9; }
     .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+
+    /* Experian brand mark — stacked colored rounded squares (echoes the deck) */
+    .ex-mark { position: relative; display: inline-block; }
+    .ex-mark > i {
+      position: absolute; display: block; border-radius: 4px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+    }
+    .ex-mark.size-md { width: 36px; height: 36px; }
+    .ex-mark.size-md > i.s1 { top: 2px;  left: 2px;  width: 14px; height: 14px; background: #77127B; }
+    .ex-mark.size-md > i.s2 { top: 12px; left: 8px;  width: 10px; height: 10px; background: #E80070; }
+    .ex-mark.size-md > i.s3 { top: 4px;  left: 16px; width: 12px; height: 12px; background: #426DA9; }
+    .ex-mark.size-md > i.s4 { top: 14px; left: 20px; width: 10px; height: 10px; background: #C1188B; }
+
+    .ex-mark.size-lg { width: 56px; height: 56px; }
+    .ex-mark.size-lg > i.s1 { top: 4px;  left: 4px;  width: 22px; height: 22px; background: #77127B; }
+    .ex-mark.size-lg > i.s2 { top: 20px; left: 14px; width: 16px; height: 16px; background: #E80070; }
+    .ex-mark.size-lg > i.s3 { top: 6px;  left: 26px; width: 18px; height: 18px; background: #426DA9; }
+    .ex-mark.size-lg > i.s4 { top: 22px; left: 30px; width: 16px; height: 16px; background: #C1188B; }
+
+    /* Experian magenta accent underline (used in the deck) */
+    .ex-accent-bar { display:block; width: 64px; height: 4px; background: #E80070; border-radius: 2px; }
   </style>
 </head>
-<body class="bg-slate-100 min-h-screen">
+<body class="bg-slate-50 min-h-screen text-slate-800">
 <div id="root"></div>
 
 <script>
@@ -2698,23 +2778,78 @@ function doPptExport(state) {
   pptx.layout = 'WIDE';
 
   const stages = [...state.stages].sort((a, b) => a.order - b.order);
-  const BRAND = '4F46E5'; const DARK = '1E293B'; const MID = '64748B';
-  const hex = c => (c || '#64748B').replace('#', '');
+  // ── Experian brand palette ─────────────────────────────────────────
+  const BRAND   = '1D4F91';   // Experian Blue (primary)
+  const ACCENT  = 'E80070';   // Magenta
+  const PURPLE  = '77127B';
+  const PINK    = 'C1188B';
+  const BLUE_M  = '426DA9';
+  const DARK    = '1D4F91';   // titles in brand blue
+  const MID     = '495765';   // muted gray from deck
+  const SOFT_BG = 'F4F6FA';
+  const TINT_BG = 'EAF1FB';
+  const hex = c => (c || '#495765').replace('#', '');
 
-  // ── Kapak slaytı ────────────────────────────────────────────────────
+  // ── Kapak slaytı (Experian deck cover) ──────────────────────────────
   const cover = pptx.addSlide();
-  cover.background = { color: BRAND };
-  cover.addText('Innovation', { x: 0.5, y: 2.0, w: 12.33, h: 1.1, fontSize: 52, bold: true, color: 'FFFFFF', align: 'center' });
-  cover.addText('Pipeline', { x: 0.5, y: 3.0, w: 12.33, h: 1.1, fontSize: 52, bold: true, color: 'C7D2FE', align: 'center' });
+  cover.background = { color: 'FFFFFF' };
+  // Top-right rounded blue panel + decorative shapes
+  cover.addShape('roundRect', { x: 9.5, y: -1.0, w: 5.5, h: 5.5, fill: { color: BRAND }, line: { color: BRAND, width: 0 }, rectRadius: 0.7 });
+  cover.addShape('roundRect', { x: 11.5, y: 4.2, w: 1.6, h: 1.6, fill: { color: ACCENT }, line: { color: ACCENT, width: 0 }, rectRadius: 0.4 });
+  cover.addShape('roundRect', { x: 12.4, y: 2.4, w: 0.8, h: 0.8, fill: { color: PURPLE }, line: { color: PURPLE, width: 0 }, rectRadius: 0.2 });
+  cover.addShape('roundRect', { x: 10.0, y: 5.5, w: 1.0, h: 1.0, fill: { color: PINK }, line: { color: PINK, width: 0 }, rectRadius: 0.25 });
+  // Brand-mark cluster (top-left)
+  cover.addShape('roundRect', { x: 0.55, y: 0.55, w: 0.25, h: 0.25, fill: { color: PURPLE }, line: { color: PURPLE, width: 0 }, rectRadius: 0.07 });
+  cover.addShape('roundRect', { x: 0.78, y: 0.78, w: 0.18, h: 0.18, fill: { color: PINK }, line: { color: PINK, width: 0 }, rectRadius: 0.05 });
+  cover.addShape('roundRect', { x: 0.62, y: 0.88, w: 0.16, h: 0.16, fill: { color: ACCENT }, line: { color: ACCENT, width: 0 }, rectRadius: 0.05 });
+  cover.addShape('roundRect', { x: 0.87, y: 0.52, w: 0.22, h: 0.22, fill: { color: BLUE_M }, line: { color: BLUE_M, width: 0 }, rectRadius: 0.06 });
+  cover.addShape('roundRect', { x: 1.10, y: 0.72, w: 0.14, h: 0.14, fill: { color: PINK }, line: { color: PINK, width: 0 }, rectRadius: 0.04 });
+  cover.addShape('roundRect', { x: 0.99, y: 0.88, w: 0.13, h: 0.13, fill: { color: ACCENT }, line: { color: ACCENT, width: 0 }, rectRadius: 0.04 });
+  // Eyebrow label
+  cover.addText('EXPERIAN TURKEY', {
+    x: 0.5, y: 1.4, w: 9.0, h: 0.3,
+    fontSize: 11, bold: true, color: PINK, charSpacing: 4, fontFace: 'Arial',
+  });
+  // Main title — two big lines, brand blue
+  cover.addText('INNOVATION', {
+    x: 0.5, y: 1.85, w: 9.5, h: 1.0,
+    fontSize: 46, bold: true, color: BRAND, fontFace: 'Arial',
+  });
+  cover.addText('PIPELINE', {
+    x: 0.5, y: 2.85, w: 9.5, h: 1.0,
+    fontSize: 46, bold: true, color: BRAND, fontFace: 'Arial',
+  });
+  // Italic subtitle
+  cover.addText('Konseptten Ölçeğe Disiplinli, Hızlı ve\nEkosistemi Mobilize Eden Bir İnovasyon Modeli', {
+    x: 0.5, y: 4.0, w: 9.0, h: 1.0,
+    fontSize: 18, italic: true, color: MID, fontFace: 'Arial',
+  });
+  // Magenta accent bar
+  cover.addShape('rect', { x: 0.5, y: 5.4, w: 1.5, h: 0.06, fill: { color: ACCENT }, line: { color: ACCENT, width: 0 } });
+  // Footer meta
   cover.addText(
-    `${new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}  ·  ${state.ideas.length} Fikir  ·  ${stages.length} Adım`,
-    { x: 0.5, y: 4.3, w: 12.33, h: 0.5, fontSize: 15, color: 'A5B4FC', align: 'center' }
+    [
+      { text: 'Tarih: ', options: { italic: true, color: MID } },
+      { text: new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }), options: { bold: true, color: BRAND } },
+      { text: '   ·   ', options: { color: MID } },
+      { text: `${state.ideas.length} Fikir`, options: { bold: true, color: BRAND } },
+      { text: '   ·   ', options: { color: MID } },
+      { text: `${stages.length} Adım`, options: { bold: true, color: BRAND } },
+    ],
+    { x: 0.5, y: 5.6, w: 9.0, h: 0.4, fontSize: 13, fontFace: 'Arial' }
   );
+  cover.addText('Experian Innovation Framework  ·  Internal', {
+    x: 0.5, y: 7.05, w: 9.0, h: 0.3, fontSize: 10, color: '8F97A0', italic: true, fontFace: 'Arial',
+  });
 
   // ── Pipeline özet slaytı ─────────────────────────────────────────────
   const ov = pptx.addSlide();
-  ov.background = { color: 'F8FAFC' };
-  ov.addText('Pipeline Özeti', { x: 0.4, y: 0.22, w: 12.5, h: 0.6, fontSize: 22, bold: true, color: BRAND });
+  ov.background = { color: 'FFFFFF' };
+  // Top brand bar
+  ov.addShape('rect', { x: 0, y: 0, w: 13.33, h: 0.08, fill: { color: BRAND }, line: { color: BRAND, width: 0 } });
+  ov.addShape('rect', { x: 0, y: 0.08, w: 13.33, h: 0.04, fill: { color: ACCENT }, line: { color: ACCENT, width: 0 } });
+  ov.addText('Pipeline Özeti', { x: 0.4, y: 0.25, w: 12.5, h: 0.6, fontSize: 24, bold: true, color: BRAND, fontFace: 'Arial' });
+  ov.addShape('rect', { x: 0.4, y: 0.82, w: 1.2, h: 0.05, fill: { color: ACCENT }, line: { color: ACCENT, width: 0 } });
 
   const cols = Math.min(stages.length, 6);
   const colW = 12.5 / cols;
@@ -2722,13 +2857,17 @@ function doPptExport(state) {
     const ideas = state.ideas.filter(id => id.stageId === stage.id);
     const x = 0.4 + i * colW;
     ov.addText(stage.name, {
-      x, y: 0.92, w: colW - 0.12, h: 0.42,
+      x, y: 1.05, w: colW - 0.12, h: 0.42,
       fontSize: 10, bold: true, color: 'FFFFFF',
       fill: { color: hex(stage.color) }, align: 'center', valign: 'middle',
     });
     const bullets = ideas.map(id => ({ text: `• ${id.title.slice(0, 34)}\n`, options: { fontSize: 9, color: DARK } }));
     if (!bullets.length) bullets.push({ text: '(boş)', options: { fontSize: 9, color: MID, italic: true } });
-    ov.addText(bullets, { x, y: 1.4, w: colW - 0.12, h: 5.7, valign: 'top' });
+    ov.addText(bullets, { x, y: 1.55, w: colW - 0.12, h: 5.5, valign: 'top' });
+  });
+  // Footer brand mark
+  ov.addText('Experian Innovation Framework', {
+    x: 0.4, y: 7.15, w: 12.5, h: 0.25, fontSize: 9, color: '8F97A0', italic: true, fontFace: 'Arial', align: 'right',
   });
 
   // ── Kart slaytları ───────────────────────────────────────────────────
@@ -2741,12 +2880,13 @@ function doPptExport(state) {
     const sl = pptx.addSlide();
     sl.background = { color: 'FFFFFF' };
 
-    // Üst başlık bar
+    // Üst başlık bar (stage rengi) + Experian magenta accent stripe altında
     sl.addShape('rect', { x: 0, y: 0, w: PAGE_W, h: 0.85, fill: { color: hex(stage?.color) }, line: { color: hex(stage?.color), width: 0 } });
+    sl.addShape('rect', { x: 0, y: 0.85, w: PAGE_W, h: 0.04, fill: { color: ACCENT }, line: { color: ACCENT, width: 0 } });
     sl.addText(idea.title, { x: PAD, y: 0.10, w: 9.6, h: 0.65, fontSize: 20, bold: true, color: 'FFFFFF' });
     if (stage) sl.addText(`📍 ${stage.name}`, {
       x: 10.0, y: 0.12, w: PAGE_W - 10.0 - PAD, h: 0.32,
-      fontSize: 11, color: 'E0E7FF', align: 'right',
+      fontSize: 11, color: 'FFFFFF', align: 'right',
     });
     // Tags right under stage name (top-right)
     const tagList = Array.isArray(idea.tags) ? idea.tags : [];
@@ -2797,8 +2937,8 @@ function doPptExport(state) {
     });
     sl.addShape('roundRect', {
       x: leftX, y: topY + 0.32, w: leftW, h: topH - 0.32,
-      fill: { color: 'EEF2FF' },
-      line: { color: 'C7D2FE', width: 0.75 },
+      fill: { color: TINT_BG },
+      line: { color: BLUE_M, width: 0.75 },
       rectRadius: 0.08,
     });
     const nextStepText = (idea.nextStep || '').trim() ||
@@ -2829,7 +2969,7 @@ function doPptExport(state) {
 
     const noteItems = [
       ...allNotesTop.map(({ sName, sColor, n }) => ({
-        tag: sName || 'Not', color: sColor || '4F46E5', bg: 'F8FAFC',
+        tag: sName || 'Not', color: sColor || BRAND, bg: SOFT_BG,
         body: n.content || (n.file ? `📎 ${n.file.name}` : ''),
       })),
       ...evListTop.map(({ sName, ev }) => {
@@ -2928,8 +3068,8 @@ function doPptExport(state) {
         // Başlık şeridi
         sl.addShape('rect', {
           x, y, w: boxW, h: 0.28,
-          fill: { color: 'EEF2FF' },
-          line: { color: 'EEF2FF', width: 0 },
+          fill: { color: TINT_BG },
+          line: { color: TINT_BG, width: 0 },
         });
         sl.addText(sec.name, {
           x: x + 0.08, y: y + 0.02, w: boxW - 0.16, h: 0.24,
@@ -2981,9 +3121,13 @@ function doPptExport(state) {
       });
     }
 
-    // Footer
+    // Footer — Experian brand
+    sl.addText('Experian Innovation Framework', {
+      x: PAD, y: PAGE_H - 0.3, w: CONTENT_W / 2, h: 0.25,
+      fontSize: 8, color: BRAND, bold: true, fontFace: 'Arial',
+    });
     sl.addText(`Oluşturuldu: ${new Date(idea.createdAt).toLocaleDateString('tr-TR')}`,
-      { x: PAD, y: PAGE_H - 0.3, w: CONTENT_W, h: 0.25, fontSize: 7.5, color: MID, align: 'right' });
+      { x: PAD + CONTENT_W / 2, y: PAGE_H - 0.3, w: CONTENT_W / 2, h: 0.25, fontSize: 7.5, color: MID, align: 'right' });
   });
 
   pptx.writeFile({ fileName: `innovation-pipeline-${new Date().toISOString().slice(0, 10)}.pptx` });
@@ -3083,14 +3227,27 @@ function LoginScreen({ onLogin, authCfg }) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center px-4">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm border border-slate-100">
+    <div className="min-h-screen bg-white flex items-center justify-center px-4 relative overflow-hidden">
+      {/* Decorative Experian shape cluster (echoes the deck cover) */}
+      <div aria-hidden="true" className="absolute -top-32 -right-32 w-[28rem] h-[28rem] rounded-[3rem] bg-experian-blue"></div>
+      <div aria-hidden="true" className="absolute top-32 right-12 w-28 h-28 rounded-3xl bg-experian-magenta"></div>
+      <div aria-hidden="true" className="absolute top-12 right-56 w-16 h-16 rounded-2xl bg-experian-purple"></div>
+      <div aria-hidden="true" className="absolute top-64 right-40 w-20 h-20 rounded-2xl bg-experian-pink"></div>
+      <div aria-hidden="true" className="absolute -bottom-24 -left-24 w-72 h-72 rounded-[3rem] bg-experian-purple/90"></div>
+
+      <div className="relative bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm border border-slate-100 ring-1 ring-experian-blue/5">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-            <span className="text-white text-xl font-black">IT</span>
+          <div className="flex justify-center mb-4">
+            <span className="ex-mark size-lg" aria-hidden="true">
+              <i className="s1"></i><i className="s2"></i><i className="s3"></i><i className="s4"></i>
+            </span>
           </div>
-          <h1 className="text-2xl font-black text-slate-800">Innovation Tool</h1>
-          <p className="text-slate-500 text-sm mt-1">
+          <p className="text-[10px] font-bold tracking-[0.3em] text-experian-pink uppercase mb-2">
+            Experian Turkey
+          </p>
+          <h1 className="text-2xl font-extrabold text-experian-blue leading-tight">Innovation Framework</h1>
+          <span className="ex-accent-bar mx-auto mt-3"></span>
+          <p className="text-slate-500 text-sm mt-3">
             {mode === 'login' ? 'Giriş yapmak için şifrenizi girin' : 'Admin şifresini sıfırla'}
           </p>
         </div>
@@ -3300,12 +3457,15 @@ function App() {
   // Loading screen
   if (dbLoading || !authCfg) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg animate-pulse">
-            <span className="text-white text-xl font-black">IT</span>
+          <div className="flex justify-center mb-4 animate-pulse">
+            <span className="ex-mark size-lg" aria-hidden="true">
+              <i className="s1"></i><i className="s2"></i><i className="s3"></i><i className="s4"></i>
+            </span>
           </div>
-          <p className="text-slate-500 text-sm">Veriler yükleniyor…</p>
+          <p className="text-experian-blue font-semibold text-sm">Experian Innovation</p>
+          <p className="text-slate-500 text-xs mt-1">Veriler yükleniyor…</p>
         </div>
       </div>
     );
@@ -3320,15 +3480,18 @@ function App() {
   return (
     <Ctx.Provider value={{ state, dispatch, authCfg, setAuthCfg }}>
       {/* Top bar */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+      <div className="bg-white border-b-2 border-experian-blue/10 sticky top-0 z-40 shadow-sm">
+        <div className="h-1 w-full bg-gradient-to-r from-experian-blue via-experian-purple to-experian-magenta"></div>
         <div className="px-6 py-3 flex items-center gap-4">
           <div className="flex items-center gap-3 flex-shrink-0">
-            <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-sm">
-              <span className="text-white text-sm font-black">IT</span>
-            </div>
+            <span className="ex-mark size-md" aria-hidden="true">
+              <i className="s1"></i><i className="s2"></i><i className="s3"></i><i className="s4"></i>
+            </span>
             <div>
-              <h1 className="font-black text-slate-800 text-lg leading-tight">Innovation Tool</h1>
-              <p className="text-xs text-slate-400 leading-tight">
+              <h1 className="font-extrabold text-experian-blue text-lg leading-tight tracking-tight">
+                Experian <span className="text-experian-purple">Innovation</span>
+              </h1>
+              <p className="text-[11px] text-slate-500 leading-tight font-medium">
                 {state.ideas.length} fikir · {totalNotes} not · {state.stages.length} adım
               </p>
             </div>
