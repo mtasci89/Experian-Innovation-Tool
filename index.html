@@ -3096,13 +3096,13 @@ function doPptExport(state) {
       const rowHeights = rowWeights.map(w => usableH * w / totalW);
 
       let curY = gridTop;
+      // Consistent column width across rows (so spans line up cleanly).
+      const baseColW = (CONTENT_W - gapX * (cellsPerRow - 1)) / cellsPerRow;
       layoutRows.forEach((row, rIdx) => {
         const rowH = rowHeights[rIdx];
-        const totalSpan = row.reduce((s, c) => s + c.span, 0);
-        const baseW = (CONTENT_W - gapX * (row.length - 1)) / totalSpan;
         let curX = PAD;
         row.forEach(({ sec, i, span }) => {
-          const boxW = baseW * span + (span > 1 ? gapX * (span - 1) : 0);
+          const boxW = baseColW * span + gapX * (span - 1);
           const boxH = rowH;
           const x = curX, y = curY;
 
