@@ -1660,7 +1660,14 @@ function NextStepPanel({ idea, canEdit }) {
 
 // ── Idea detail modal ──────────────────────────────────────────────────
 function IdeaDetailModal({ idea, onClose, canEdit }) {
-  const { state, dispatch } = useContext(Ctx);
+  const { state, dispatch, role, viewerToken } = useContext(Ctx);
+  // Submitter can edit ONLY the 4 problem-field answers + their name —
+  // not the rest of the card (Next Step, Notes, Canvas, Evaluation,
+  // stage move, delete, etc). Admin retains full edit via canEdit.
+  const ownsThisCard = role === 'viewer'
+    && idea.submittedByToken
+    && idea.submittedByToken === viewerToken;
+  const canEditProblem = canEdit || ownsThisCard;
   const [tab, setTab] = useState('nextStep');
   const [activeStageId, setActiveStageId] = useState(idea.stageId);
   const [editing, setEditing] = useState(false);
@@ -1802,7 +1809,7 @@ function IdeaDetailModal({ idea, onClose, canEdit }) {
               <h4 className="text-sm font-bold text-experian-blue tracking-wide uppercase">
                 📩 Problem / Fırsat Özeti
               </h4>
-              {canEdit ? (
+              {canEditProblem ? (
                 <input
                   value={liveIdea.submittedBy || ''}
                   onChange={e => dispatch({
@@ -1823,13 +1830,13 @@ function IdeaDetailModal({ idea, onClose, canEdit }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {PROBLEM_FIELDS.map(f => {
                 const v = (liveIdea.problemFields || {})[f.id] || '';
-                if (!canEdit && !v && f.id === 'solution') return null;
+                if (!canEditProblem && !v && f.id === 'solution') return null;
                 return (
                   <div key={f.id} className="bg-white rounded-xl p-3 border border-experian-blue/10">
                     <p className="text-[11px] font-bold text-experian-magenta uppercase tracking-wide mb-1">
                       {f.label}
                     </p>
-                    {canEdit ? (
+                    {canEditProblem ? (
                       <textarea
                         value={v}
                         onChange={e => {
@@ -4002,21 +4009,13 @@ function App() {
       </div>
 
       {/* Modals */}
-      {openIdea && (() => {
-        const liveIdea = state.ideas.find(i => i.id === openIdea.id) || openIdea;
-        // A viewer can edit only the card they themselves submitted
-        // (matched by anonymous viewerToken stored in localStorage).
-        const ownsThisCard = role === 'viewer'
-          && liveIdea.submittedByToken
-          && liveIdea.submittedByToken === viewerToken;
-        return (
-          <IdeaDetailModal
-            idea={liveIdea}
-            onClose={() => setOpenIdea(null)}
-            canEdit={canEdit || ownsThisCard}
-          />
-        );
-      })()}
+      {openIdea && (
+        <IdeaDetailModal
+          idea={state.ideas.find(i => i.id === openIdea.id) || openIdea}
+          onClose={() => setOpenIdea(null)}
+          canEdit={canEdit}
+        />
+      )}
       {showTagLib && (
         <TagLibraryModal onClose={() => setShowTagLib(false)} />
       )}
