@@ -127,12 +127,12 @@
   const db = firebase.database();
 
   const DEFAULT_STAGES = [
-    { id: 'problem',    name: 'Problem',      color: '#3B82F6', order: 0 },
-    { id: 'solution',   name: 'Solution',     color: '#8B5CF6', order: 1 },
-    { id: 'feedback',   name: 'Feedback',     color: '#F59E0B', order: 2 },
-    { id: 'test-learn', name: 'Test & Learn', color: '#F97316', order: 3 },
-    { id: 'pilot',      name: 'Pilot',        color: '#10B981', order: 4 },
-    { id: 'scale',      name: 'Scale',        color: '#059669', order: 5 },
+    { id: 'problem',    name: 'Problem',      color: '#C1188B', order: 0 },
+    { id: 'solution',   name: 'Solution',     color: '#E80070', order: 1 },
+    { id: 'feedback',   name: 'Feedback',     color: '#77127B', order: 2 },
+    { id: 'test-learn', name: 'Test & Learn', color: '#426DA9', order: 3 },
+    { id: 'pilot',      name: 'Pilot',        color: '#1D4F91', order: 4 },
+    { id: 'scale',      name: 'Scale',        color: '#122F58', order: 5 },
   ];
 
   const DEFAULT_CANVAS_TEMPLATES = [
@@ -560,9 +560,17 @@ function reducer(state, action) {
 }
 
 // ── Shared UI ──────────────────────────────────────────────────────────
+// Experian-aligned palette (deck colors first, neutrals last).
 const PALETTE = [
-  '#3B82F6','#8B5CF6','#EC4899','#F59E0B','#F97316',
-  '#10B981','#059669','#06B6D4','#6366F1','#EF4444','#64748B',
+  '#C1188B', '#E80070', '#77127B',
+  '#426DA9', '#1D4F91', '#173F75', '#122F58',
+  '#495765', '#8F97A0',
+];
+// Color sequence applied by 'Experian renklerini uygula' in settings —
+// matches the natural pipeline progression (warm focus → cool delivery).
+const EXPERIAN_STAGE_PALETTE = [
+  '#77127B', '#C1188B', '#E80070',
+  '#426DA9', '#1D4F91', '#173F75', '#122F58',
 ];
 
 function ColorPicker({ value, onChange }) {
@@ -2637,9 +2645,34 @@ function SettingsModal({ onClose, onLogout }) {
         {/* ── Pipeline tab ── */}
         {tab === 'pipeline' && (
           <div>
-            <p className="text-sm text-slate-500 mb-5">
+            <p className="text-sm text-slate-500 mb-3">
               Adımları ekleyin, yeniden adlandırın, renk değiştirin veya sıralayın.
             </p>
+
+            {/* One-click apply Experian-aligned stage palette */}
+            <div className="mb-5 bg-experian-blue/5 border border-experian-blue/20 rounded-xl p-3 flex items-center gap-3">
+              <div className="flex gap-1 flex-shrink-0">
+                {EXPERIAN_STAGE_PALETTE.map(c => (
+                  <span key={c} className="w-4 h-4 rounded" style={{ background: c }} />
+                ))}
+              </div>
+              <div className="flex-1 text-xs text-slate-600">
+                Tüm aşamalara Experian renk paletini sırayla uygula
+              </div>
+              <button
+                onClick={() => {
+                  if (!confirm('Tüm aşama renkleri Experian paletine göre güncellenecek. Devam edilsin mi?')) return;
+                  const sorted = [...state.stages].sort((a, b) => a.order - b.order);
+                  sorted.forEach((s, i) => {
+                    const color = EXPERIAN_STAGE_PALETTE[i % EXPERIAN_STAGE_PALETTE.length];
+                    dispatch({ type: 'UPDATE_STAGE', id: s.id, updates: { color } });
+                  });
+                }}
+                className="px-3 py-1.5 bg-experian-blue text-white rounded-lg text-xs font-medium hover:bg-experian-blue/90 whitespace-nowrap">
+                🎨 Uygula
+              </button>
+            </div>
+
             <div className="space-y-2 mb-6">
               {state.stages.map((stage, i) => (
                 <div key={stage.id}
