@@ -1843,8 +1843,7 @@ function IdeaDetailModal({ idea, onClose, canEdit }) {
                           const next = { ...(liveIdea.problemFields || {}), [f.id]: e.target.value };
                           // Keep title/tagline in sync with first two answers
                           const updates = { problemFields: next };
-                          if (f.id === 'problem') updates.title   = (e.target.value || '').trim().slice(0, 80) || liveIdea.title;
-                          if (f.id === 'segment') updates.tagline = (e.target.value || '').trim().slice(0, 120);
+                          if (f.id === 'problem') updates.title = (e.target.value || '').trim().slice(0, 80) || liveIdea.title;
                           dispatch({ type: 'UPDATE_IDEA', id: idea.id, updates });
                         }}
                         rows={f.id === 'solution' ? 4 : 3}
@@ -1895,7 +1894,7 @@ function IdeaDetailModal({ idea, onClose, canEdit }) {
         </div>
 
         <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-100">
-          {canEdit ? (
+          {(canEdit || ownsThisCard) ? (
             <button onClick={() => {
               if (confirm('Bu fikri silmek istediğinize emin misiniz?')) {
                 dispatch({ type: 'DELETE_IDEA', id: idea.id });
@@ -2085,12 +2084,11 @@ function ProblemSubmissionModal({ stageId, onClose, role }) {
     setErr('');
     setSaving(true);
     const title = vals.problem.trim().slice(0, 80);
-    const tagline = vals.segment.trim().slice(0, 120);
     dispatch({
       type: 'ADD_IDEA',
       stageId,
       title,
-      tagline,
+      tagline: '',
       problemFields: {
         problem:  vals.problem.trim(),
         segment:  vals.segment.trim(),
@@ -2255,7 +2253,7 @@ function PipelineColumn({ stage, ideas, onOpen, canEdit, onStageReorder, role })
         {/* Admin: copy shareable submission link */}
         {isProblemStage && canEdit && (
           <button onClick={() => {
-            const url = `${window.location.origin}${window.location.pathname}#submit`;
+            const url = `${window.location.origin}/new-idea`;
             try {
               navigator.clipboard.writeText(url);
               alert('Form linki kopyalandı:\n\n' + url + '\n\nViewer şifresini bilen herkes bu linkten problem gönderebilir.');
@@ -3828,7 +3826,7 @@ function SubmitProblemPage() {
       const idea = {
         id: 'id-' + Math.random().toString(36).slice(2) + Date.now().toString(36),
         title: vals.problem.trim().slice(0, 80),
-        tagline: vals.segment.trim().slice(0, 120),
+        tagline: '',
         description: '',
         stageId: problemStage.id,
         createdAt: Date.now(), updatedAt: Date.now(),
@@ -4247,18 +4245,29 @@ function App() {
   );
 }
 
-// Hash router — '#submit' opens the public problem-submission form so it
-// can be shared as a standalone link (no main-app login required).
+// Router — opens the public problem-submission form for either a
+// pretty path (/new-idea, /yenifikir, /submit — wired via _redirects)
+// or the legacy hash (#submit). Both are standalone, no main-app login.
+function isSubmitRoute() {
+  const p = (window.location.pathname || '').replace(/\/+$/, '').toLowerCase();
+  const h = (window.location.hash     || '').toLowerCase();
+  return (
+    h === '#submit' || h === '#/submit' ||
+    p.endsWith('/new-idea') || p.endsWith('/yenifikir') || p.endsWith('/submit')
+  );
+}
 function Root() {
-  const [hash, setHash] = useState(window.location.hash);
+  const [route, setRoute] = useState(isSubmitRoute() ? 'submit' : 'app');
   useEffect(() => {
-    const onHash = () => setHash(window.location.hash);
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    const sync = () => setRoute(isSubmitRoute() ? 'submit' : 'app');
+    window.addEventListener('hashchange', sync);
+    window.addEventListener('popstate', sync);
+    return () => {
+      window.removeEventListener('hashchange', sync);
+      window.removeEventListener('popstate', sync);
+    };
   }, []);
-  if (hash === '#submit' || hash === '#/submit') {
-    return <SubmitProblemPage />;
-  }
+  if (route === 'submit') return <SubmitProblemPage />;
   return <App />;
 }
 

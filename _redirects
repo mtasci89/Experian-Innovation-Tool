@@ -1,0 +1,7 @@
+# Pretty URL for the public problem-submission form.
+# Netlify serves index.html at /new-idea (and aliases) and our SPA's
+# Root component routes the path to the SubmitProblemPage component.
+/new-idea       /index.html   200
+/new-idea/      /index.html   200
+/yenifikir      /index.html   200
+/submit         /index.html   200
