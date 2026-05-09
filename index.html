@@ -3069,16 +3069,42 @@ function doPptExport(state) {
 
       const secs = canvas.sections;
       const n = secs.length;
-      const cols = n <= 3 ? n : (n <= 6 ? 3 : (n <= 8 ? 4 : 3));
-      const rows = Math.ceil(n / cols);
+      const cellsPerRow = n <= 3 ? n : (n <= 6 ? 3 : (n <= 8 ? 4 : 3));
       const gapX = 0.12, gapY = 0.12;
-      const boxW = (CONTENT_W - gapX * (cols - 1)) / cols;
-      const boxH = (gridH - gapY * (rows - 1)) / rows;
 
+      // ── Slot allocation: journey sections take a full-width row ─────
+      // Other sections flow at cellsPerRow per row.
+      const layoutRows = [];
+      let curRow = [];
+      const flush = () => { if (curRow.length) { layoutRows.push(curRow); curRow = []; } };
       secs.forEach((sec, i) => {
-        const r = Math.floor(i / cols), c = i % cols;
-        const x = PAD + c * (boxW + gapX);
-        const y = gridTop + r * (boxH + gapY);
+        const isJourney = sec.type === 'journey';
+        if (isJourney) {
+          flush();
+          layoutRows.push([{ sec, i, span: cellsPerRow }]);
+        } else {
+          if (curRow.length >= cellsPerRow) flush();
+          curRow.push({ sec, i, span: 1 });
+        }
+      });
+      flush();
+
+      // Row heights weighted: journey rows get extra vertical space.
+      const rowWeights = layoutRows.map(row => row.some(c => c.sec.type === 'journey') ? 1.5 : 1);
+      const totalW = rowWeights.reduce((a, b) => a + b, 0);
+      const usableH = gridH - gapY * (layoutRows.length - 1);
+      const rowHeights = rowWeights.map(w => usableH * w / totalW);
+
+      let curY = gridTop;
+      layoutRows.forEach((row, rIdx) => {
+        const rowH = rowHeights[rIdx];
+        const totalSpan = row.reduce((s, c) => s + c.span, 0);
+        const baseW = (CONTENT_W - gapX * (row.length - 1)) / totalSpan;
+        let curX = PAD;
+        row.forEach(({ sec, i, span }) => {
+          const boxW = baseW * span + (span > 1 ? gapX * (span - 1) : 0);
+          const boxH = rowH;
+          const x = curX, y = curY;
 
         // Kutu arka planı
         sl.addShape('roundRect', {
@@ -3174,6 +3200,9 @@ function doPptExport(state) {
             fontSize: 9, italic: true, color: MID, valign: 'top',
           });
         }
+          curX += boxW + gapX;
+        });
+        curY += rowH + gapY;
       });
     } else if (idea.description) {
       sl.addText(idea.description, {
