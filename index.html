@@ -355,6 +355,8 @@ function reducer(state, action) {
         createdAt: now(), updatedAt: now(),
         owner: '', tags: [], stageData: {}, canvases: [],
       };
+      if (action.problemFields) idea.problemFields = action.problemFields;
+      if (action.submittedBy)   idea.submittedBy   = action.submittedBy;
       s = { ...state, ideas: [...state.ideas, idea] };
       break;
     }
@@ -1792,6 +1794,38 @@ function IdeaDetailModal({ idea, onClose, canEdit }) {
           )}
         </div>
 
+        {/* Problem submission summary (when idea was created via the 4-question form) */}
+        {liveIdea.problemFields && (
+          <div className="mb-4 bg-experian-blue/5 border border-experian-blue/20 rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-bold text-experian-blue tracking-wide uppercase">
+                📩 Problem / Fırsat Özeti
+              </h4>
+              {liveIdea.submittedBy && (
+                <span className="text-xs bg-white text-experian-blue px-2.5 py-1 rounded-full font-medium border border-experian-blue/20">
+                  👤 {liveIdea.submittedBy}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {PROBLEM_FIELDS.map(f => {
+                const v = liveIdea.problemFields[f.id];
+                if (!v && f.id === 'solution') return null;
+                return (
+                  <div key={f.id} className="bg-white rounded-xl p-3 border border-experian-blue/10">
+                    <p className="text-[11px] font-bold text-experian-magenta uppercase tracking-wide mb-1">
+                      {f.label}
+                    </p>
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap">
+                      {v || <span className="italic text-slate-400">—</span>}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Tabs */}
         <div className="border-b border-slate-200 mb-4">
           <div className="flex">
@@ -1987,12 +2021,145 @@ function AddIdeaInline({ stageId, onDone }) {
   );
 }
 
+// ── Problem submission modal (4 yapılandırılmış soru) ─────────────────
+// Hem admin hem viewer rolünün problem ekleyebilmesi için. Viewer
+// yalnızca yeni problem gönderebilir; mevcut kartları düzenleyemez.
+const PROBLEM_FIELDS = [
+  { id: 'problem',  label: '1. Problem / Fırsat nedir?',                       placeholder: 'Çözülmesi gereken sorunu veya yakalanan fırsatı kısaca anlat…' },
+  { id: 'segment',  label: '2. Problemin sahibi hedef segment kimdir?',         placeholder: 'Bu problemi yaşayan kullanıcı / müşteri segmenti…' },
+  { id: 'audience', label: '3. Fırsat ile hizmet edilecek kitle nedir?',        placeholder: 'Çözüm hayata geçtiğinde fayda sağlanacak kitle…' },
+  { id: 'solution', label: '4. Çözüm önerin varsa yazabilir misin? (opsiyonel)', placeholder: 'Aklındaki çözüm fikrini paylaşabilirsin…' },
+];
+
+function ProblemSubmissionModal({ stageId, onClose, role }) {
+  const { dispatch } = useContext(Ctx);
+  const [vals, setVals] = useState({ problem: '', segment: '', audience: '', solution: '' });
+  const [submittedBy, setSubmittedBy] = useState('');
+  const [err, setErr] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const set = (id, v) => setVals(prev => ({ ...prev, [id]: v }));
+
+  const submit = () => {
+    if (!vals.problem.trim()) { setErr('1. soru zorunlu — Problem / Fırsat nedir?'); return; }
+    if (!vals.segment.trim()) { setErr('2. soru zorunlu — Hedef segment kimdir?'); return; }
+    if (!vals.audience.trim()) { setErr('3. soru zorunlu — Hizmet edilecek kitle nedir?'); return; }
+    setErr('');
+    setSaving(true);
+    const title = vals.problem.trim().slice(0, 80);
+    const tagline = vals.segment.trim().slice(0, 120);
+    dispatch({
+      type: 'ADD_IDEA',
+      stageId,
+      title,
+      tagline,
+      problemFields: {
+        problem:  vals.problem.trim(),
+        segment:  vals.segment.trim(),
+        audience: vals.audience.trim(),
+        solution: vals.solution.trim(),
+      },
+      submittedBy: submittedBy.trim() || (role === 'viewer' ? 'Viewer' : 'Admin'),
+    });
+    setTimeout(() => { setSaving(false); setDone(true); }, 250);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-8 ring-1 ring-experian-blue/10 overflow-hidden">
+        {/* Header */}
+        <div className="bg-experian-blue px-6 py-4 flex items-start justify-between">
+          <div>
+            <p className="text-[10px] font-bold tracking-[0.3em] text-experian-magenta uppercase">
+              Experian Innovation
+            </p>
+            <h2 className="text-xl font-extrabold text-white mt-1">Problem / Fırsat Gönder</h2>
+            <p className="text-xs text-white/70 mt-1">
+              4 soruyu cevapla — gönderildikten sonra Innovation Board ekibi değerlendirir.
+            </p>
+          </div>
+          <button onClick={onClose}
+            className="text-white/70 hover:text-white text-2xl leading-none">&times;</button>
+        </div>
+
+        {done ? (
+          <div className="p-8 text-center">
+            <div className="text-5xl mb-3">✅</div>
+            <h3 className="text-lg font-bold text-experian-blue mb-1">Teşekkürler!</h3>
+            <p className="text-sm text-slate-600 mb-6">
+              Problemin Innovation pipeline'ına eklendi. Innovation Board ekibi inceleyecek.
+            </p>
+            <div className="flex justify-center gap-2">
+              <button onClick={() => { setVals({ problem:'', segment:'', audience:'', solution:'' }); setSubmittedBy(''); setDone(false); }}
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200">
+                Bir tane daha gönder
+              </button>
+              <button onClick={onClose}
+                className="px-4 py-2 bg-experian-blue text-white rounded-xl text-sm font-medium hover:bg-experian-blue/90">
+                Kapat
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+            {PROBLEM_FIELDS.map(f => (
+              <div key={f.id}>
+                <label className="block text-sm font-semibold text-experian-blue mb-1.5">{f.label}</label>
+                <textarea
+                  value={vals[f.id]}
+                  onChange={e => set(f.id, e.target.value)}
+                  placeholder={f.placeholder}
+                  rows={f.id === 'solution' ? 4 : 3}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-experian-blue focus:ring-2 focus:ring-experian-blue/15 resize-y"
+                />
+              </div>
+            ))}
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+                Adın (opsiyonel)
+              </label>
+              <input
+                value={submittedBy}
+                onChange={e => setSubmittedBy(e.target.value)}
+                placeholder="Adın — kim gönderiyor?"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-experian-blue focus:ring-2 focus:ring-experian-blue/15"
+              />
+            </div>
+
+            {err && (
+              <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-2.5 rounded-xl">
+                {err}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button onClick={onClose}
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200">
+                İptal
+              </button>
+              <button onClick={submit} disabled={saving}
+                className="px-5 py-2 bg-experian-blue text-white rounded-xl text-sm font-semibold hover:bg-experian-blue/90 disabled:opacity-60">
+                {saving ? 'Gönderiliyor…' : 'Gönder'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Pipeline column ────────────────────────────────────────────────────
-function PipelineColumn({ stage, ideas, onOpen, canEdit, onStageReorder }) {
+function PipelineColumn({ stage, ideas, onOpen, canEdit, onStageReorder, role }) {
   const { dispatch } = useContext(Ctx);
   const [showAdd, setShowAdd] = useState(false);
+  const [showProblemModal, setShowProblemModal] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [stageDragOver, setStageDragOver] = useState(false);
+  // Problem column: anyone (admin OR viewer) can submit a structured problem.
+  const isProblemStage = stage.id === 'problem';
+  const canAddHere     = canEdit || isProblemStage;
 
   return (
     <div className={`flex-shrink-0 w-[272px] flex flex-col transition-opacity ${stageDragOver ? 'opacity-40' : ''}`}
@@ -2025,9 +2192,11 @@ function PipelineColumn({ stage, ideas, onOpen, canEdit, onStageReorder }) {
           <span className="font-bold text-white text-sm">{stage.name}</span>
           <span className="bg-white/25 text-white text-xs px-2 py-0.5 rounded-full">{ideas.length}</span>
         </div>
-        {canEdit && (
-          <button onClick={() => setShowAdd(true)}
+        {canAddHere && (
+          <button
+            onClick={() => isProblemStage && !canEdit ? setShowProblemModal(true) : setShowAdd(true)}
             onDragStart={e => e.stopPropagation()}
+            title={isProblemStage && !canEdit ? 'Problem / Fırsat gönder' : 'Yeni kart ekle'}
             className="text-white/80 hover:text-white text-2xl font-light w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/20 transition-colors">
             +
           </button>
@@ -2037,8 +2206,21 @@ function PipelineColumn({ stage, ideas, onOpen, canEdit, onStageReorder }) {
       <div className={`flex-1 rounded-b-2xl p-3 space-y-2 min-h-[320px] transition-colors ${
         dragOver && canEdit ? 'bg-indigo-50 ring-2 ring-indigo-400 ring-inset' : 'bg-slate-100'
       }`}>
+        {/* Viewer-friendly entry hint on the Problem column */}
+        {isProblemStage && !canEdit && (
+          <button onClick={() => setShowProblemModal(true)}
+            className="w-full text-xs px-3 py-2 bg-experian-blue/5 border border-dashed border-experian-blue/40 text-experian-blue rounded-xl hover:bg-experian-blue/10 font-medium">
+            ＋ Problem / Fırsat Gönder
+          </button>
+        )}
         {showAdd && (
           <AddIdeaInline stageId={stage.id} onDone={() => setShowAdd(false)} />
+        )}
+        {showProblemModal && (
+          <ProblemSubmissionModal
+            stageId={stage.id}
+            role={role}
+            onClose={() => setShowProblemModal(false)} />
         )}
         {ideas.map(idea => <IdeaCard key={idea.id} idea={idea} onOpen={onOpen} canEdit={canEdit} />)}
         {ideas.length === 0 && !showAdd && (
@@ -3756,6 +3938,7 @@ function App() {
                 ideas={pipelineIdeas.filter(i => i.stageId === stage.id)}
                 onOpen={handleOpenIdea}
                 canEdit={canEdit}
+                role={role}
                 onStageReorder={canEdit ? handleStageReorder : null}
               />
             ))}
