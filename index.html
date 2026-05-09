@@ -2252,6 +2252,21 @@ function PipelineColumn({ stage, ideas, onOpen, canEdit, onStageReorder, role })
             ＋ Problem / Fırsat Gönder
           </button>
         )}
+        {/* Admin: copy shareable submission link */}
+        {isProblemStage && canEdit && (
+          <button onClick={() => {
+            const url = `${window.location.origin}${window.location.pathname}#submit`;
+            try {
+              navigator.clipboard.writeText(url);
+              alert('Form linki kopyalandı:\n\n' + url + '\n\nViewer şifresini bilen herkes bu linkten problem gönderebilir.');
+            } catch (e) {
+              prompt('Form linki — kopyalayın:', url);
+            }
+          }}
+            className="w-full text-xs px-3 py-2 bg-experian-blue/5 border border-dashed border-experian-blue/40 text-experian-blue rounded-xl hover:bg-experian-blue/10 font-medium">
+            🔗 Form Link'ini Kopyala
+          </button>
+        )}
         {showAdd && (
           <AddIdeaInline stageId={stage.id} onDone={() => setShowAdd(false)} />
         )}
@@ -3756,6 +3771,209 @@ function LoginScreen({ onLogin, authCfg }) {
   );
 }
 
+// ── Standalone public problem-submission page (#submit) ────────────────
+// Shareable link — anyone with the viewer (or admin) password can fill in
+// the 4-question form without entering the main app. Submission writes a
+// new card directly into Firebase under the Problem stage.
+function SubmitProblemPage() {
+  const [authCfg, setAuthCfg]   = useState(null);
+  const [authed, setAuthed]     = useState(false);
+  const [pass, setPass]         = useState('');
+  const [authErr, setAuthErr]   = useState('');
+  const [vals, setVals]         = useState({ problem:'', segment:'', audience:'', solution:'' });
+  const [submittedBy, setSubmittedBy] = useState('');
+  const [err, setErr]           = useState('');
+  const [saving, setSaving]     = useState(false);
+  const [done, setDone]         = useState(false);
+
+  // Persistent anonymous token (so the same browser keeps identity)
+  const [viewerToken] = useState(() => {
+    const KEY = 'innovation-tool-viewer-id';
+    try {
+      let t = localStorage.getItem(KEY);
+      if (!t) { t = 'v-' + Math.random().toString(36).slice(2) + '-' + Date.now().toString(36); localStorage.setItem(KEY, t); }
+      return t;
+    } catch (e) { return 'v-fallback'; }
+  });
+
+  useEffect(() => {
+    const ref = db.ref('authConfig');
+    const handler = ref.on('value', snap => setAuthCfg(snap.val() || null));
+    return () => ref.off('value', handler);
+  }, []);
+
+  const tryAuth = () => {
+    setAuthErr('');
+    const cfg = authCfg || {};
+    if (!pass) { setAuthErr('Lütfen şifreyi girin.'); return; }
+    if (pass === cfg.adminPass || pass === cfg.viewerPass) {
+      setAuthed(true);
+    } else {
+      setAuthErr('Hatalı şifre.');
+      setPass('');
+    }
+  };
+
+  const submit = async () => {
+    if (!vals.problem.trim()) { setErr('1. soru zorunlu — Problem / Fırsat nedir?'); return; }
+    if (!vals.segment.trim()) { setErr('2. soru zorunlu — Hedef segment kimdir?'); return; }
+    if (!vals.audience.trim()) { setErr('3. soru zorunlu — Hizmet edilecek kitle nedir?'); return; }
+    setErr(''); setSaving(true);
+    try {
+      const snap = await db.ref('appData').once('value');
+      const data = snap.val() || {};
+      const stages = Array.isArray(data.stages) ? data.stages : DEFAULT_STAGES;
+      const problemStage = stages.find(s => /problem/i.test(s.name || '')) || stages.find(s => s.id === 'problem') || stages[0];
+      if (!problemStage) throw new Error('Problem aşaması bulunamadı.');
+      const idea = {
+        id: 'id-' + Math.random().toString(36).slice(2) + Date.now().toString(36),
+        title: vals.problem.trim().slice(0, 80),
+        tagline: vals.segment.trim().slice(0, 120),
+        description: '',
+        stageId: problemStage.id,
+        createdAt: Date.now(), updatedAt: Date.now(),
+        owner: '', tags: [], stageData: {}, canvases: [],
+        problemFields: {
+          problem:  vals.problem.trim(),
+          segment:  vals.segment.trim(),
+          audience: vals.audience.trim(),
+          solution: vals.solution.trim(),
+        },
+        submittedBy: submittedBy.trim() || 'Anonim',
+        submittedByToken: viewerToken,
+      };
+      const ideas = Array.isArray(data.ideas) ? [...data.ideas, idea] : [idea];
+      await db.ref('appData').set({ ...data, stages, ideas, updatedAt: Date.now() });
+      setDone(true);
+    } catch (e) {
+      setErr('Gönderme başarısız: ' + (e.message || 'bilinmeyen hata'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const Brand = (
+    <div className="text-center mb-6">
+      <div className="flex justify-center mb-3">
+        <span className="ex-mark size-lg" aria-hidden="true">
+          <i className="s1"></i><i className="s2"></i><i className="s3"></i><i className="s4"></i>
+        </span>
+      </div>
+      <p className="text-[10px] font-bold tracking-[0.3em] text-experian-magenta uppercase mb-1">
+        Experian Turkey
+      </p>
+      <h1 className="text-2xl font-extrabold text-experian-blue leading-tight">Innovation Framework</h1>
+      <span className="ex-accent-bar mx-auto mt-3"></span>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-white relative overflow-hidden flex items-center justify-center px-4 py-8">
+      {/* Decorative shapes (consistent with login screen) */}
+      <div aria-hidden="true" className="absolute -top-32 -right-32 w-[28rem] h-[28rem] rounded-[3rem] bg-experian-blue/90"></div>
+      <div aria-hidden="true" className="absolute top-32 right-12 w-28 h-28 rounded-3xl bg-experian-magenta"></div>
+      <div aria-hidden="true" className="absolute top-12 right-56 w-16 h-16 rounded-2xl bg-experian-purple"></div>
+      <div aria-hidden="true" className="absolute -bottom-24 -left-24 w-72 h-72 rounded-[3rem] bg-experian-purple/80"></div>
+
+      {/* Auth gate */}
+      {!authed && !done && (
+        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 ring-1 ring-experian-blue/5">
+          {Brand}
+          <p className="text-sm text-slate-600 text-center mb-5">
+            Bu form Innovation Framework'e bir <span className="font-semibold text-experian-blue">Problem / Fırsat</span> göndermek içindir. Devam etmek için viewer şifresini gir.
+          </p>
+          <input
+            type="password" autoFocus value={pass}
+            onChange={e => setPass(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && tryAuth()}
+            placeholder="••••••••"
+            className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-experian-blue focus:ring-2 focus:ring-experian-blue/15 mb-3"
+          />
+          {authErr && (
+            <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-2.5 rounded-xl mb-3">
+              {authErr}
+            </div>
+          )}
+          <button onClick={tryAuth} disabled={!authCfg}
+            className="w-full py-3 bg-experian-blue text-white rounded-xl font-semibold hover:bg-experian-blue/90 transition-colors disabled:opacity-60">
+            {authCfg ? 'Devam' : 'Yükleniyor…'}
+          </button>
+        </div>
+      )}
+
+      {/* Form */}
+      {authed && !done && (
+        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl ring-1 ring-experian-blue/5 overflow-hidden">
+          <div className="bg-experian-blue px-6 py-5">
+            <p className="text-[10px] font-bold tracking-[0.3em] text-experian-magenta uppercase">
+              Experian Innovation
+            </p>
+            <h2 className="text-xl font-extrabold text-white mt-1">Problem / Fırsat Gönder</h2>
+            <p className="text-xs text-white/70 mt-1">
+              4 soruyu cevapla. Innovation Board ekibi inceleyecek.
+            </p>
+          </div>
+          <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+            {PROBLEM_FIELDS.map(f => (
+              <div key={f.id}>
+                <label className="block text-sm font-semibold text-experian-blue mb-1.5">{f.label}</label>
+                <textarea
+                  value={vals[f.id]}
+                  onChange={e => setVals(prev => ({ ...prev, [f.id]: e.target.value }))}
+                  placeholder={f.placeholder}
+                  rows={f.id === 'solution' ? 4 : 3}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-experian-blue focus:ring-2 focus:ring-experian-blue/15 resize-y"
+                />
+              </div>
+            ))}
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+                Adın (opsiyonel)
+              </label>
+              <input
+                value={submittedBy}
+                onChange={e => setSubmittedBy(e.target.value)}
+                placeholder="Adın — kim gönderiyor?"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-experian-blue focus:ring-2 focus:ring-experian-blue/15"
+              />
+            </div>
+            {err && (
+              <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-2.5 rounded-xl">
+                {err}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button onClick={submit} disabled={saving}
+                className="px-6 py-2.5 bg-experian-blue text-white rounded-xl text-sm font-semibold hover:bg-experian-blue/90 disabled:opacity-60">
+                {saving ? 'Gönderiliyor…' : 'Gönder'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success */}
+      {done && (
+        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 text-center ring-1 ring-experian-blue/5">
+          {Brand}
+          <div className="text-5xl mb-3">✅</div>
+          <h3 className="text-lg font-bold text-experian-blue mb-1">Teşekkürler!</h3>
+          <p className="text-sm text-slate-600 mb-6">
+            Problemin Innovation pipeline'ına eklendi. Innovation Board ekibi inceleyecek.
+          </p>
+          <button onClick={() => {
+            setVals({ problem:'', segment:'', audience:'', solution:'' });
+            setSubmittedBy(''); setDone(false); setErr('');
+          }}
+            className="px-5 py-2.5 bg-experian-blue text-white rounded-xl text-sm font-semibold hover:bg-experian-blue/90">
+            Bir tane daha gönder
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Root App ───────────────────────────────────────────────────────────
 function App() {
   const [state, dispatch] = useReducer(reducer, null, getInitialState);
@@ -4029,8 +4247,23 @@ function App() {
   );
 }
 
+// Hash router — '#submit' opens the public problem-submission form so it
+// can be shared as a standalone link (no main-app login required).
+function Root() {
+  const [hash, setHash] = useState(window.location.hash);
+  useEffect(() => {
+    const onHash = () => setHash(window.location.hash);
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  if (hash === '#submit' || hash === '#/submit') {
+    return <SubmitProblemPage />;
+  }
+  return <App />;
+}
+
 const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<App />);
+root.render(<Root />);
 </script>
 </body>
 </html>
