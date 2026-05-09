@@ -897,41 +897,45 @@ function JourneyFlow({ steps, canEdit, onChange }) {
               onDragOver={canEdit ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } : undefined}
               onDrop={canEdit ? (e) => { e.preventDefault(); const from = e.dataTransfer.getData('journey-step') || dragId; reorder(from, step.id); setDragId(null); } : undefined}
               onDragEnd={() => setDragId(null)}
-              className={`relative flex-1 min-w-[140px] max-w-[220px] bg-white border-2 border-indigo-200 rounded-lg p-2 shadow-sm ${canEdit ? 'cursor-move hover:border-indigo-400' : ''} ${dragId === step.id ? 'opacity-50' : ''}`}
+              className={`relative flex-1 min-w-[140px] max-w-[220px] bg-white border border-experian-blue/20 rounded-lg shadow-sm overflow-hidden ${canEdit ? 'cursor-move hover:border-experian-blue hover:shadow-md transition-all' : ''} ${dragId === step.id ? 'opacity-50' : ''}`}
             >
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 rounded-full w-5 h-5 flex items-center justify-center">
-                  {idx + 1}
-                </span>
-                {canEdit && (
-                  <button onClick={() => remove(step.id)}
-                    className="text-slate-300 hover:text-red-500 text-sm leading-none">&times;</button>
-                )}
+              {/* Brand header strip on each step */}
+              <div className="h-1 w-full bg-gradient-to-r from-experian-blue to-experian-purple"></div>
+              <div className="p-2">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-bold text-white bg-experian-blue rounded-full w-5 h-5 flex items-center justify-center shadow-sm">
+                    {idx + 1}
+                  </span>
+                  {canEdit && (
+                    <button onClick={() => remove(step.id)}
+                      className="text-slate-300 hover:text-red-500 text-sm leading-none">&times;</button>
+                  )}
+                </div>
+                <input
+                  value={step.title || ''}
+                  onChange={e => canEdit && update(step.id, { title: e.target.value })}
+                  readOnly={!canEdit}
+                  placeholder={canEdit ? 'Adım başlığı' : '—'}
+                  className="w-full text-sm font-semibold text-experian-blue outline-none bg-transparent mb-1"
+                />
+                <textarea
+                  value={step.description || ''}
+                  onChange={e => canEdit && update(step.id, { description: e.target.value })}
+                  readOnly={!canEdit}
+                  placeholder={canEdit ? 'Açıklama…' : ''}
+                  rows={5}
+                  className="w-full text-xs text-slate-600 outline-none bg-transparent resize-none"
+                />
               </div>
-              <input
-                value={step.title || ''}
-                onChange={e => canEdit && update(step.id, { title: e.target.value })}
-                readOnly={!canEdit}
-                placeholder={canEdit ? 'Adım başlığı' : '—'}
-                className="w-full text-sm font-semibold text-slate-800 outline-none bg-transparent mb-1"
-              />
-              <textarea
-                value={step.description || ''}
-                onChange={e => canEdit && update(step.id, { description: e.target.value })}
-                readOnly={!canEdit}
-                placeholder={canEdit ? 'Açıklama…' : ''}
-                rows={5}
-                className="w-full text-xs text-slate-600 outline-none bg-transparent resize-none"
-              />
             </div>
             {idx < list.length - 1 && (
-              <div className="flex items-center text-indigo-400 text-xl select-none">›</div>
+              <div className="flex items-center text-experian-magenta text-2xl font-bold select-none">›</div>
             )}
           </React.Fragment>
         ))}
         {canEdit && (
           <button onClick={addStep}
-            className="min-w-[100px] border-2 border-dashed border-indigo-200 text-indigo-500 rounded-lg hover:bg-indigo-50 hover:border-indigo-400 text-sm font-medium px-3 py-2">
+            className="min-w-[100px] border-2 border-dashed border-experian-blue/40 text-experian-blue rounded-lg hover:bg-experian-blue/5 hover:border-experian-blue text-sm font-medium px-3 py-2 transition-colors">
             + Adım
           </button>
         )}
@@ -2892,7 +2896,9 @@ function doPptExport(state) {
     const imgSlideNums    = new Map(); // section-index → detail slide number
     let _detailCursor = slideCount;
     _sections.forEach((sec, idx) => {
-      if (sec.image) { _detailCursor++; imgSlideNums.set(idx, _detailCursor); }
+      const _hasImg     = !!sec.image;
+      const _hasJourney = sec.type === 'journey' && Array.isArray(sec.steps) && sec.steps.length > 0;
+      if (_hasImg || _hasJourney) { _detailCursor++; imgSlideNums.set(idx, _detailCursor); }
     });
 
     // Üst başlık bar (stage rengi) + Experian magenta accent stripe altında
@@ -3093,6 +3099,7 @@ function doPptExport(state) {
         });
 
         const hasImg = !!sec.image;
+        const hasJourney = sec.type === 'journey' && Array.isArray(sec.steps) && sec.steps.length > 0;
         const contentY = y + 0.32;
         const contentH = boxH - 0.36;
 
@@ -3101,7 +3108,32 @@ function doPptExport(state) {
           ? { hyperlink: { slide: _detailSlideNum, tooltip: 'Tam boyut görüntülemek için tıklayın' } }
           : {};
 
-        if (hasImg && sec.content) {
+        if (hasJourney) {
+          // Native journey preview: numbered chips + step titles, link to full-flow detail slide
+          const stepsToShow = sec.steps.slice(0, 5);
+          const lineH = Math.max(0.18, Math.min(0.26, (contentH - 0.3) / Math.max(stepsToShow.length, 1)));
+          stepsToShow.forEach((step, j) => {
+            const sy = contentY + j * lineH;
+            sl.addShape('ellipse', {
+              x: x + 0.1, y: sy + 0.02, w: 0.18, h: 0.18,
+              fill: { color: BRAND }, line: { color: BRAND, width: 0 },
+            });
+            sl.addText(String(j + 1), {
+              x: x + 0.1, y: sy + 0.02, w: 0.18, h: 0.18,
+              fontSize: 7, bold: true, color: 'FFFFFF', align: 'center', valign: 'middle',
+            });
+            sl.addText((step.title || '—').slice(0, 60), {
+              x: x + 0.32, y: sy, w: boxW - 0.4, h: lineH,
+              fontSize: 8, bold: true, color: BRAND, valign: 'middle',
+            });
+          });
+          const more = sec.steps.length - stepsToShow.length;
+          sl.addText(more > 0 ? `🛣️ Tam akış (+${more} daha)` : '🛣️ Tam akış', {
+            x: x + 0.08, y: y + boxH - 0.22, w: boxW - 0.16, h: 0.18,
+            fontSize: 7, italic: true, color: ACCENT, align: 'right', bold: true,
+            hyperlink: { slide: _detailSlideNum, tooltip: 'Tam akışı görüntüle' },
+          });
+        } else if (hasImg && sec.content) {
           // Yarı yarıya: görsel solda, metin sağda
           const halfW = (boxW - 0.24) / 2;
           try {
@@ -3158,11 +3190,14 @@ function doPptExport(state) {
     sl.addText(`Oluşturuldu: ${new Date(idea.createdAt).toLocaleDateString('tr-TR')}`,
       { x: PAD + CONTENT_W / 2, y: PAGE_H - 0.3, w: CONTENT_W / 2, h: 0.25, fontSize: 7.5, color: MID, align: 'right' });
 
-    // ── Görsel detay slaytları ────────────────────────────────────────
-    // Her image içeren bölüm için tam boy bir detay slaytı; canvas
-    // grid'indeki thumbnail oraya hyperlinkli.
+    // ── Detay slaytları ───────────────────────────────────────────────
+    // Görsel içeren ve/veya journey-step içeren bölümler için tam boy
+    // detay slaytı; canvas grid'indeki preview oraya hyperlinkli.
     _sections.forEach((sec, idx) => {
-      if (!sec.image) return;
+      const _hasImg     = !!sec.image;
+      const _hasJourney = sec.type === 'journey' && Array.isArray(sec.steps) && sec.steps.length > 0;
+      if (!_hasImg && !_hasJourney) return;
+
       const ds = pptx.addSlide();
       slideCount++;
       ds.background = { color: 'FFFFFF' };
@@ -3173,21 +3208,80 @@ function doPptExport(state) {
         x: PAD, y: 0.12, w: CONTENT_W - 1.8, h: 0.4,
         fontSize: 16, bold: true, color: 'FFFFFF', fontFace: 'Arial',
       });
-      // Back-link
       ds.addText('← Karta dön', {
         x: PAGE_W - PAD - 1.8, y: 0.18, w: 1.8, h: 0.3,
         fontSize: 11, color: 'FFFFFF', align: 'right',
         hyperlink: { slide: myIdeaSlideNum, tooltip: 'Karta geri dön' },
       });
-      // Full-bleed image
-      const imgY = 0.85, imgH = PAGE_H - 1.2;
-      try {
-        ds.addImage({
-          data: sec.image,
-          x: PAD, y: imgY, w: CONTENT_W, h: imgH,
-          sizing: { type: 'contain', w: CONTENT_W, h: imgH },
+
+      if (_hasJourney) {
+        // Native horizontal journey flow in Experian palette
+        const steps = sec.steps;
+        const flowY  = 1.05;
+        const flowH  = PAGE_H - 1.55;
+        const arrowW = 0.32;
+        const cardW  = Math.max(1.3, Math.min(2.2, (CONTENT_W - (steps.length - 1) * arrowW) / Math.max(steps.length, 1)));
+        const totalW = steps.length * cardW + (steps.length - 1) * arrowW;
+        const startX = (PAGE_W - totalW) / 2;
+
+        steps.forEach((step, j) => {
+          const sx = startX + j * (cardW + arrowW);
+          // Card body
+          ds.addShape('roundRect', {
+            x: sx, y: flowY, w: cardW, h: flowH,
+            fill: { color: 'FFFFFF' },
+            line: { color: BRAND, width: 1.25 },
+            rectRadius: 0.1,
+          });
+          // Two-tone top strip (brand → purple)
+          ds.addShape('rect', {
+            x: sx, y: flowY, w: cardW * 0.5, h: 0.08,
+            fill: { color: BRAND }, line: { color: BRAND, width: 0 },
+          });
+          ds.addShape('rect', {
+            x: sx + cardW * 0.5, y: flowY, w: cardW * 0.5, h: 0.08,
+            fill: { color: PURPLE }, line: { color: PURPLE, width: 0 },
+          });
+          // Number badge
+          ds.addShape('ellipse', {
+            x: sx + 0.18, y: flowY + 0.22, w: 0.42, h: 0.42,
+            fill: { color: BRAND }, line: { color: BRAND, width: 0 },
+          });
+          ds.addText(String(j + 1), {
+            x: sx + 0.18, y: flowY + 0.22, w: 0.42, h: 0.42,
+            fontSize: 16, bold: true, color: 'FFFFFF', align: 'center', valign: 'middle',
+          });
+          // Title
+          ds.addText(step.title || '—', {
+            x: sx + 0.18, y: flowY + 0.78, w: cardW - 0.36, h: 0.6,
+            fontSize: 13, bold: true, color: BRAND, valign: 'top', fontFace: 'Arial',
+          });
+          // Description
+          ds.addText(step.description || '', {
+            x: sx + 0.18, y: flowY + 1.42, w: cardW - 0.36, h: flowH - 1.55,
+            fontSize: 10, color: DARK, valign: 'top', fontFace: 'Arial',
+          });
+          // Arrow
+          if (j < steps.length - 1) {
+            const ay = flowY + flowH / 2;
+            ds.addShape('rightArrow', {
+              x: sx + cardW + 0.04, y: ay - 0.16, w: arrowW - 0.08, h: 0.32,
+              fill: { color: ACCENT }, line: { color: ACCENT, width: 0 },
+            });
+          }
         });
-      } catch (e) {}
+      } else {
+        // Görsel detay (yalnızca image varsa)
+        const imgY = 0.85, imgH = PAGE_H - 1.2;
+        try {
+          ds.addImage({
+            data: sec.image,
+            x: PAD, y: imgY, w: CONTENT_W, h: imgH,
+            sizing: { type: 'contain', w: CONTENT_W, h: imgH },
+          });
+        } catch (e) {}
+      }
+
       ds.addText('Experian Innovation Framework', {
         x: PAD, y: PAGE_H - 0.3, w: CONTENT_W, h: 0.25,
         fontSize: 8, color: BRAND, italic: true, align: 'right', fontFace: 'Arial',
