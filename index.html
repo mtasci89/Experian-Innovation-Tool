@@ -2158,7 +2158,8 @@ function PipelineColumn({ stage, ideas, onOpen, canEdit, onStageReorder, role })
   const [dragOver, setDragOver] = useState(false);
   const [stageDragOver, setStageDragOver] = useState(false);
   // Problem column: anyone (admin OR viewer) can submit a structured problem.
-  const isProblemStage = stage.id === 'problem';
+  // Detect by id OR by name so it still works when stages are renamed/added.
+  const isProblemStage = stage.id === 'problem' || /problem/i.test(stage.name || '');
   const canAddHere     = canEdit || isProblemStage;
 
   return (
