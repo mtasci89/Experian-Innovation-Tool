@@ -2231,9 +2231,9 @@ function PipelineColumn({ stage, ideas, onOpen, canEdit, onStageReorder, role })
         </div>
         {canAddHere && (
           <button
-            onClick={() => isProblemStage && !canEdit ? setShowProblemModal(true) : setShowAdd(true)}
+            onClick={() => isProblemStage ? setShowProblemModal(true) : setShowAdd(true)}
             onDragStart={e => e.stopPropagation()}
-            title={isProblemStage && !canEdit ? 'Problem / Fırsat gönder' : 'Yeni kart ekle'}
+            title={isProblemStage ? 'Problem / Fırsat gönder' : 'Yeni kart ekle'}
             className="text-white/80 hover:text-white text-2xl font-light w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/20 transition-colors">
             +
           </button>
@@ -2243,26 +2243,12 @@ function PipelineColumn({ stage, ideas, onOpen, canEdit, onStageReorder, role })
       <div className={`flex-1 rounded-b-2xl p-3 space-y-2 min-h-[320px] transition-colors ${
         dragOver && canEdit ? 'bg-indigo-50 ring-2 ring-indigo-400 ring-inset' : 'bg-slate-100'
       }`}>
-        {/* Viewer-friendly entry hint on the Problem column */}
-        {isProblemStage && !canEdit && (
+        {/* Problem column entry hint — admin and viewer both use the same
+            structured form, so the CTA is shown to anyone who can post here. */}
+        {isProblemStage && (
           <button onClick={() => setShowProblemModal(true)}
             className="w-full text-xs px-3 py-2 bg-experian-blue/5 border border-dashed border-experian-blue/40 text-experian-blue rounded-xl hover:bg-experian-blue/10 font-medium">
             ＋ Problem / Fırsat Gönder
-          </button>
-        )}
-        {/* Admin: copy shareable submission link */}
-        {isProblemStage && canEdit && (
-          <button onClick={() => {
-            const url = `${window.location.origin}/new-idea`;
-            try {
-              navigator.clipboard.writeText(url);
-              alert('Form linki kopyalandı:\n\n' + url + '\n\nViewer şifresini bilen herkes bu linkten problem gönderebilir.');
-            } catch (e) {
-              prompt('Form linki — kopyalayın:', url);
-            }
-          }}
-            className="w-full text-xs px-3 py-2 bg-experian-blue/5 border border-dashed border-experian-blue/40 text-experian-blue rounded-xl hover:bg-experian-blue/10 font-medium">
-            🔗 Form Link'ini Kopyala
           </button>
         )}
         {showAdd && (
@@ -2721,66 +2707,113 @@ function SettingsModal({ onClose, onLogout }) {
         {tab === 'auth' && (
           <div className="space-y-5">
             <div className="bg-blue-50 rounded-xl p-4 border border-blue-200 text-sm text-blue-800">
-              <p className="font-semibold mb-1">ℹ️ Erişim Yönetimi Hakkında</p>
+              <p className="font-semibold mb-1">ℹ️ Erişim Yönetimi</p>
               <p className="text-xs text-blue-700 leading-relaxed">
                 Şifre belirlediğinizde, araç açıldığında giriş ekranı gösterilir.
                 <b> Admin</b> tam yetkiyle, <b>Viewer</b> yalnızca görüntüleme yetkisiyle girer.
-                Şifreleri e-posta ile paylaşmak için aşağıdaki davet butonlarını kullanın.
               </p>
             </div>
 
-            <div className="bg-white rounded-xl p-4 border border-slate-200">
-              <label className="block text-sm font-semibold text-slate-700 mb-1">📧 Davet Gönderilecek E-posta</label>
-              <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
-                placeholder="ornek@sirket.com"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
-              <p className="text-xs text-slate-400 mt-1">Davet butonuna basınca bu adrese e-posta taslağı açılır</p>
-            </div>
+            {/* ── 1. Şifre yönetimi (sade, davetten ayrı) ─────────────── */}
+            <div className="bg-white rounded-xl p-4 border border-slate-200 space-y-3">
+              <h4 className="text-sm font-bold text-experian-blue">🔑 Şifreler</h4>
 
-            <div className="space-y-3">
-              <div className="bg-white rounded-xl p-4 border border-slate-200">
+              <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  🔑 Admin Şifresi
+                  Admin Şifresi
                   {authCfg.adminPass && <span className="ml-2 text-xs text-green-600 font-normal">✓ Ayarlanmış</span>}
                 </label>
-                <div className="flex gap-2">
-                  <input type="password" value={adminPass} onChange={e => setAdminPass(e.target.value)}
-                    placeholder={authCfg.adminPass ? 'Değiştirmek için yeni şifre girin' : 'Admin şifresi belirleyin'}
-                    className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
-                  {authCfg.adminPass && (
-                    <button onClick={() => sendInvite('admin')}
-                      className="px-3 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-medium hover:bg-indigo-100 whitespace-nowrap">
-                      ✉️ Davet Gönder
-                    </button>
-                  )}
-                </div>
+                <input type="password" value={adminPass} onChange={e => setAdminPass(e.target.value)}
+                  placeholder={authCfg.adminPass ? 'Değiştirmek için yeni şifre girin' : 'Admin şifresi belirleyin'}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
               </div>
 
-              <div className="bg-white rounded-xl p-4 border border-slate-200">
+              <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  👁️ Viewer Şifresi
+                  Viewer Şifresi
                   {authCfg.viewerPass && <span className="ml-2 text-xs text-green-600 font-normal">✓ Ayarlanmış</span>}
                 </label>
-                <div className="flex gap-2">
-                  <input type="password" value={viewerPass} onChange={e => setViewerPass(e.target.value)}
-                    placeholder={authCfg.viewerPass ? 'Değiştirmek için yeni şifre girin' : 'Viewer şifresi belirleyin'}
-                    className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
-                  {authCfg.viewerPass && (
-                    <button onClick={() => sendInvite('viewer')}
-                      className="px-3 py-2 bg-slate-50 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-100 whitespace-nowrap">
-                      ✉️ Davet Gönder
-                    </button>
-                  )}
-                </div>
+                <input type="password" value={viewerPass} onChange={e => setViewerPass(e.target.value)}
+                  placeholder={authCfg.viewerPass ? 'Değiştirmek için yeni şifre girin' : 'Viewer şifresi belirleyin'}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button onClick={saveAuth}
+                  className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700">
+                  {authSaved ? '✅ Kaydedildi' : 'Şifreleri Kaydet'}
+                </button>
+                {authCfg.enabled && (
+                  <button onClick={disableAuth}
+                    className="px-4 py-2.5 bg-red-50 text-red-600 rounded-xl text-sm font-medium hover:bg-red-100 border border-red-200">
+                    Şifreleri Kaldır
+                  </button>
+                )}
               </div>
             </div>
 
-            {inviteMsg && (
-              <div className="bg-green-50 text-green-700 text-sm px-4 py-2.5 rounded-xl border border-green-200">
-                ✅ {inviteMsg}
+            {/* ── 2. Davet (e-posta + butonlar) ────────────────────────── */}
+            <div className="bg-white rounded-xl p-4 border border-slate-200 space-y-3">
+              <h4 className="text-sm font-bold text-experian-blue">✉️ Davet Gönder</h4>
+              <p className="text-xs text-slate-500 -mt-1">
+                Mevcut şifreleri e-posta ile paylaşmak için. Şifreyi değiştirmez.
+              </p>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Davet Gönderilecek E-posta</label>
+                <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
+                  placeholder="ornek@sirket.com"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
               </div>
-            )}
+              <div className="flex gap-2">
+                <button onClick={() => sendInvite('admin')}
+                  disabled={!authCfg.adminPass || !inviteEmail.trim()}
+                  className="flex-1 px-3 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed">
+                  ✉️ Admin Daveti
+                </button>
+                <button onClick={() => sendInvite('viewer')}
+                  disabled={!authCfg.viewerPass || !inviteEmail.trim()}
+                  className="flex-1 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed">
+                  ✉️ Viewer Daveti
+                </button>
+              </div>
+              {inviteMsg && (
+                <div className="bg-green-50 text-green-700 text-sm px-4 py-2.5 rounded-xl border border-green-200">
+                  ✅ {inviteMsg}
+                </div>
+              )}
+            </div>
 
+            {/* ── 3. Public submission form link ───────────────────────── */}
+            <div className="bg-white rounded-xl p-4 border border-slate-200 space-y-3">
+              <h4 className="text-sm font-bold text-experian-blue">🔗 Problem Gönderme Form Linki</h4>
+              <p className="text-xs text-slate-500 -mt-1">
+                Toola girmeden de problem gönderilebilir. Linkin sahibi viewer şifresini bilirse formu doldurup gönderebilir.
+              </p>
+              <div className="flex gap-2 items-center">
+                <code className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-700 truncate">
+                  {window.location.origin}/new-idea
+                </code>
+                <button onClick={() => {
+                  const url = `${window.location.origin}/new-idea`;
+                  try {
+                    navigator.clipboard.writeText(url);
+                    setInviteMsg('Form linki kopyalandı');
+                    setTimeout(() => setInviteMsg(''), 2500);
+                  } catch (e) {
+                    prompt('Form linki — kopyalayın:', url);
+                  }
+                }}
+                  className="px-3 py-2 bg-experian-blue text-white rounded-lg text-sm font-medium hover:bg-experian-blue/90 whitespace-nowrap">
+                  📋 Kopyala
+                </button>
+                <a href="/new-idea" target="_blank" rel="noopener"
+                  className="px-3 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 whitespace-nowrap">
+                  ↗ Aç
+                </a>
+              </div>
+            </div>
+
+            {/* ── 4. Şifremi unuttum (güvenlik sorusu) ─────────────────── */}
             <div className="bg-amber-50 rounded-xl p-4 border border-amber-200 space-y-3">
               <div>
                 <p className="text-sm font-semibold text-amber-900">🔐 Şifremi Unuttum — Güvenlik Sorusu</p>
@@ -2806,19 +2839,10 @@ function SettingsModal({ onClose, onLogout }) {
                   placeholder={authCfg.securityA ? 'Değiştirmek için yeni yanıt girin' : 'Yanıtınızı girin (büyük/küçük harf önemsiz)'}
                   className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-amber-400" />
               </div>
-            </div>
-
-            <div className="flex gap-3">
               <button onClick={saveAuth}
-                className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700">
-                {authSaved ? '✅ Kaydedildi' : 'Şifreleri Kaydet'}
+                className="w-full py-2 bg-amber-200 text-amber-900 rounded-lg text-sm font-semibold hover:bg-amber-300">
+                Güvenlik Sorusunu Kaydet
               </button>
-              {authCfg.enabled && (
-                <button onClick={disableAuth}
-                  className="px-4 py-2.5 bg-red-50 text-red-600 rounded-xl text-sm font-medium hover:bg-red-100 border border-red-200">
-                  Şifreleri Kaldır
-                </button>
-              )}
             </div>
 
             {authCfg.enabled && onLogout && (
