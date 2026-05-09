@@ -355,8 +355,9 @@ function reducer(state, action) {
         createdAt: now(), updatedAt: now(),
         owner: '', tags: [], stageData: {}, canvases: [],
       };
-      if (action.problemFields) idea.problemFields = action.problemFields;
-      if (action.submittedBy)   idea.submittedBy   = action.submittedBy;
+      if (action.problemFields)    idea.problemFields    = action.problemFields;
+      if (action.submittedBy)      idea.submittedBy      = action.submittedBy;
+      if (action.submittedByToken) idea.submittedByToken = action.submittedByToken;
       s = { ...state, ideas: [...state.ideas, idea] };
       break;
     }
@@ -1797,28 +1798,57 @@ function IdeaDetailModal({ idea, onClose, canEdit }) {
         {/* Problem submission summary (when idea was created via the 4-question form) */}
         {liveIdea.problemFields && (
           <div className="mb-4 bg-experian-blue/5 border border-experian-blue/20 rounded-2xl p-4">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-3 gap-2">
               <h4 className="text-sm font-bold text-experian-blue tracking-wide uppercase">
                 📩 Problem / Fırsat Özeti
               </h4>
-              {liveIdea.submittedBy && (
-                <span className="text-xs bg-white text-experian-blue px-2.5 py-1 rounded-full font-medium border border-experian-blue/20">
-                  👤 {liveIdea.submittedBy}
-                </span>
+              {canEdit ? (
+                <input
+                  value={liveIdea.submittedBy || ''}
+                  onChange={e => dispatch({
+                    type: 'UPDATE_IDEA', id: idea.id,
+                    updates: { submittedBy: e.target.value }
+                  })}
+                  placeholder="Adın"
+                  className="text-xs bg-white text-experian-blue px-2.5 py-1 rounded-full font-medium border border-experian-blue/20 focus:outline-none focus:ring-2 focus:ring-experian-blue/20 max-w-[180px]"
+                />
+              ) : (
+                liveIdea.submittedBy && (
+                  <span className="text-xs bg-white text-experian-blue px-2.5 py-1 rounded-full font-medium border border-experian-blue/20">
+                    👤 {liveIdea.submittedBy}
+                  </span>
+                )
               )}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {PROBLEM_FIELDS.map(f => {
-                const v = liveIdea.problemFields[f.id];
-                if (!v && f.id === 'solution') return null;
+                const v = (liveIdea.problemFields || {})[f.id] || '';
+                if (!canEdit && !v && f.id === 'solution') return null;
                 return (
                   <div key={f.id} className="bg-white rounded-xl p-3 border border-experian-blue/10">
                     <p className="text-[11px] font-bold text-experian-magenta uppercase tracking-wide mb-1">
                       {f.label}
                     </p>
-                    <p className="text-sm text-slate-700 whitespace-pre-wrap">
-                      {v || <span className="italic text-slate-400">—</span>}
-                    </p>
+                    {canEdit ? (
+                      <textarea
+                        value={v}
+                        onChange={e => {
+                          const next = { ...(liveIdea.problemFields || {}), [f.id]: e.target.value };
+                          // Keep title/tagline in sync with first two answers
+                          const updates = { problemFields: next };
+                          if (f.id === 'problem') updates.title   = (e.target.value || '').trim().slice(0, 80) || liveIdea.title;
+                          if (f.id === 'segment') updates.tagline = (e.target.value || '').trim().slice(0, 120);
+                          dispatch({ type: 'UPDATE_IDEA', id: idea.id, updates });
+                        }}
+                        rows={f.id === 'solution' ? 4 : 3}
+                        placeholder={f.placeholder}
+                        className="w-full text-sm text-slate-700 outline-none bg-transparent resize-y focus:ring-2 focus:ring-experian-blue/15 rounded px-1"
+                      />
+                    ) : (
+                      <p className="text-sm text-slate-700 whitespace-pre-wrap">
+                        {v || <span className="italic text-slate-400">—</span>}
+                      </p>
+                    )}
                   </div>
                 );
               })}
@@ -2032,7 +2062,7 @@ const PROBLEM_FIELDS = [
 ];
 
 function ProblemSubmissionModal({ stageId, onClose, role }) {
-  const { dispatch } = useContext(Ctx);
+  const { dispatch, viewerToken } = useContext(Ctx);
   const [vals, setVals] = useState({ problem: '', segment: '', audience: '', solution: '' });
   const [submittedBy, setSubmittedBy] = useState('');
   const [err, setErr] = useState('');
@@ -2061,6 +2091,7 @@ function ProblemSubmissionModal({ stageId, onClose, role }) {
         solution: vals.solution.trim(),
       },
       submittedBy: submittedBy.trim() || (role === 'viewer' ? 'Viewer' : 'Admin'),
+      submittedByToken: viewerToken,
     });
     setTimeout(() => { setSaving(false); setDone(true); }, 250);
   };
@@ -3722,6 +3753,19 @@ function LoginScreen({ onLogin, authCfg }) {
 function App() {
   const [state, dispatch] = useReducer(reducer, null, getInitialState);
   const [openIdea, setOpenIdea]     = useState(null);
+  // Anonymous viewer identity — persisted in localStorage so a viewer who
+  // submits a problem can re-edit only THEIR own card across sessions.
+  const VIEWER_TOKEN_KEY = 'innovation-tool-viewer-id';
+  const [viewerToken] = useState(() => {
+    try {
+      let t = localStorage.getItem(VIEWER_TOKEN_KEY);
+      if (!t) {
+        t = 'v-' + Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
+        localStorage.setItem(VIEWER_TOKEN_KEY, t);
+      }
+      return t;
+    } catch (e) { return 'v-fallback'; }
+  });
   const [showSettings, setShowSettings] = useState(false);
   const [showTagLib, setShowTagLib]     = useState(false);
   const [search, setSearch]         = useState('');
@@ -3849,7 +3893,7 @@ function App() {
   }
 
   return (
-    <Ctx.Provider value={{ state, dispatch, authCfg, setAuthCfg }}>
+    <Ctx.Provider value={{ state, dispatch, authCfg, setAuthCfg, role, viewerToken }}>
       {/* Top bar */}
       <div className="bg-white border-b-2 border-experian-blue/10 sticky top-0 z-40 shadow-sm">
         <div className="h-1 w-full bg-gradient-to-r from-experian-blue via-experian-purple to-experian-magenta"></div>
@@ -3958,13 +4002,21 @@ function App() {
       </div>
 
       {/* Modals */}
-      {openIdea && (
-        <IdeaDetailModal
-          idea={state.ideas.find(i => i.id === openIdea.id) || openIdea}
-          onClose={() => setOpenIdea(null)}
-          canEdit={canEdit}
-        />
-      )}
+      {openIdea && (() => {
+        const liveIdea = state.ideas.find(i => i.id === openIdea.id) || openIdea;
+        // A viewer can edit only the card they themselves submitted
+        // (matched by anonymous viewerToken stored in localStorage).
+        const ownsThisCard = role === 'viewer'
+          && liveIdea.submittedByToken
+          && liveIdea.submittedByToken === viewerToken;
+        return (
+          <IdeaDetailModal
+            idea={liveIdea}
+            onClose={() => setOpenIdea(null)}
+            canEdit={canEdit || ownsThisCard}
+          />
+        );
+      })()}
       {showTagLib && (
         <TagLibraryModal onClose={() => setShowTagLib(false)} />
       )}
