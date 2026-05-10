@@ -718,7 +718,7 @@ function FileAttachmentDisplay({ file, onDelete, canEdit }) {
 }
 
 function NotesPanel({ idea, stageId, canEdit }) {
-  const { dispatch } = useContext(Ctx);
+  const { dispatch, state } = useContext(Ctx);
   const [newNote, setNewNote] = useState('');
   const [noteType, setNoteType] = useState('text');
   const [pendingFile, setPendingFile] = useState(null);
@@ -727,7 +727,12 @@ function NotesPanel({ idea, stageId, canEdit }) {
   const [editContent, setEditContent] = useState('');
   const fileRef = useRef();
 
-  const notes = idea.stageData?.[stageId]?.notes || [];
+  const stageById = id => (state.stages || []).find(s => s.id === id);
+  // Aggregate notes across ALL stages so the user sees full history;
+  // each note carries its origin stage for tagging + correct dispatch.
+  const allNotes = Object.entries(idea.stageData || {}).flatMap(([sid, sd]) =>
+    (sd.notes || []).map(n => ({ ...n, _stageId: sid, _stage: stageById(sid) }))
+  ).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const typeOf = id => NOTE_TYPES.find(t => t.id === id) || NOTE_TYPES[0];
 
   const handleFileSelect = e => {
@@ -807,16 +812,25 @@ function NotesPanel({ idea, stageId, canEdit }) {
       )}
 
       <div className="space-y-3">
-        {notes.length === 0 && (
-          <p className="text-center py-10 text-slate-400 text-sm">Bu adım için henüz not eklenmemiş</p>
+        {allNotes.length === 0 && (
+          <p className="text-center py-10 text-slate-400 text-sm">Henüz not eklenmemiş</p>
         )}
-        {notes.map(note => {
+        {allNotes.map(note => {
           const t = typeOf(note.type);
+          const noteStage = note._stage;
+          const noteStageId = note._stageId;
           return (
             <div key={note.id}
               className="bg-slate-50 rounded-xl p-4 border border-slate-200 group hover:border-slate-300 transition-colors">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Origin-stage tag */}
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full text-white"
+                    style={{ background: noteStage?.color || '#64748B' }}
+                    title="Bu notun eklendiği aşama">
+                    {noteStage?.name || 'Bilinmeyen Aşama'}
+                  </span>
                   <span>{t.icon}</span>
                   <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{t.label}</span>
                   <span className="text-xs text-slate-400">{new Date(note.createdAt).toLocaleDateString('tr-TR')}</span>
@@ -829,7 +843,7 @@ function NotesPanel({ idea, stageId, canEdit }) {
                         Düzenle
                       </button>
                     )}
-                    <button onClick={() => dispatch({ type: 'DELETE_NOTE', ideaId: idea.id, stageId, noteId: note.id })}
+                    <button onClick={() => dispatch({ type: 'DELETE_NOTE', ideaId: idea.id, stageId: noteStageId, noteId: note.id })}
                       className="text-xs px-2 py-1 bg-white border border-red-200 rounded-lg hover:bg-red-50 text-red-500">
                       Sil
                     </button>
@@ -843,7 +857,7 @@ function NotesPanel({ idea, stageId, canEdit }) {
                     className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none" />
                   <div className="flex gap-2 mt-2">
                     <button onClick={() => {
-                      dispatch({ type: 'UPDATE_NOTE', ideaId: idea.id, stageId, noteId: note.id, content: editContent });
+                      dispatch({ type: 'UPDATE_NOTE', ideaId: idea.id, stageId: noteStageId, noteId: note.id, content: editContent });
                       setEditId(null);
                     }} className="px-3 py-1 bg-indigo-600 text-white rounded-lg text-xs">Kaydet</button>
                     <button onClick={() => setEditId(null)}
@@ -859,7 +873,7 @@ function NotesPanel({ idea, stageId, canEdit }) {
                     <FileAttachmentDisplay
                       file={note.file}
                       canEdit={canEdit}
-                      onDelete={() => dispatch({ type: 'DELETE_NOTE', ideaId: idea.id, stageId, noteId: note.id })}
+                      onDelete={() => dispatch({ type: 'DELETE_NOTE', ideaId: idea.id, stageId: noteStageId, noteId: note.id })}
                     />
                   )}
                 </>
