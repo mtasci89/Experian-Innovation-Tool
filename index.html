@@ -1677,7 +1677,6 @@ function IdeaDetailModal({ idea, onClose, canEdit }) {
     && idea.submittedByToken === viewerToken;
   const canEditProblem = canEdit || ownsThisCard;
   const [tab, setTab] = useState('nextStep');
-  const [activeStageId, setActiveStageId] = useState(idea.stageId);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     title: idea.title, tagline: idea.tagline || '',
@@ -1773,24 +1772,21 @@ function IdeaDetailModal({ idea, onClose, canEdit }) {
           </div>
         )}
 
-        {/* Stage breadcrumb */}
+        {/* Stage breadcrumb (display-only — visual progress indicator) */}
         <div className="mb-4 overflow-x-auto">
           <div className="flex items-center gap-1 min-w-max">
             {state.stages.map((st, i) => {
-              const isActive  = st.id === liveIdea.stageId;
-              const isPast    = state.stages.findIndex(s => s.id === liveIdea.stageId) > i;
-              const isViewing = st.id === activeStageId;
+              const isActive = st.id === liveIdea.stageId;
+              const isPast   = state.stages.findIndex(s => s.id === liveIdea.stageId) > i;
               return (
                 <React.Fragment key={st.id}>
-                  <button onClick={() => setActiveStageId(st.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all border-2 ${
-                      isViewing ? 'border-slate-800' : 'border-transparent'
-                    } ${
-                      isActive ? 'text-white' : isPast ? 'text-white opacity-60' : 'bg-slate-100 text-slate-400'
+                  <div
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap select-none ${
+                      isActive ? 'text-white ring-2 ring-slate-800/80' : isPast ? 'text-white opacity-60' : 'bg-slate-100 text-slate-400'
                     }`}
                     style={isActive || isPast ? { background: st.color } : {}}>
-                    {st.name}{isActive && ' ◀'}
-                  </button>
+                    {st.name}
+                  </div>
                   {i < state.stages.length - 1 && <span className="text-slate-300 text-xs">›</span>}
                 </React.Fragment>
               );
@@ -1896,9 +1892,9 @@ function IdeaDetailModal({ idea, onClose, canEdit }) {
 
         <div className="pb-2">
           {tab === 'nextStep'   && <NextStepPanel idea={liveIdea} canEdit={canEdit} />}
-          {tab === 'notes'      && <NotesPanel idea={liveIdea} stageId={activeStageId || liveIdea.stageId} canEdit={canEdit} />}
+          {tab === 'notes'      && <NotesPanel idea={liveIdea} stageId={liveIdea.stageId} canEdit={canEdit} />}
           {tab === 'canvas'     && <CanvasEditor idea={liveIdea} canEdit={canEdit} />}
-          {tab === 'evaluation' && <EvaluationPanel idea={liveIdea} stageId={activeStageId || liveIdea.stageId} canEdit={canEdit} />}
+          {tab === 'evaluation' && <EvaluationPanel idea={liveIdea} stageId={liveIdea.stageId} canEdit={canEdit} />}
         </div>
 
         <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-100">
