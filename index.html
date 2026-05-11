@@ -1857,7 +1857,7 @@ function IdeaDetailModal({ idea, onClose, canEdit }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {PROBLEM_FIELDS.map(f => {
                 const v = (liveIdea.problemFields || {})[f.id] || '';
-                if (!canEditProblem && !v && f.id === 'solution') return null;
+                if (!canEditProblem && !v && OPTIONAL_PROBLEM_FIELDS.has(f.id)) return null;
                 return (
                   <div key={f.id} className="bg-white rounded-xl p-3 border border-experian-blue/10">
                     <p className="text-[11px] font-bold text-experian-magenta uppercase tracking-wide mb-1">
@@ -2088,15 +2088,17 @@ function AddIdeaInline({ stageId, onDone }) {
 // Hem admin hem viewer rolünün problem ekleyebilmesi için. Viewer
 // yalnızca yeni problem gönderebilir; mevcut kartları düzenleyemez.
 const PROBLEM_FIELDS = [
-  { id: 'problem',  label: '1. Problem / Fırsat nedir?',                       placeholder: 'Çözülmesi gereken sorunu veya yakalanan fırsatı kısaca anlat…' },
-  { id: 'segment',  label: '2. Problemin sahibi hedef segment kimdir?',         placeholder: 'Bu problemi yaşayan kullanıcı / müşteri segmenti…' },
-  { id: 'audience', label: '3. Fırsat ile hizmet edilecek kitle nedir?',        placeholder: 'Çözüm hayata geçtiğinde fayda sağlanacak kitle…' },
-  { id: 'solution', label: '4. Çözüm önerin varsa yazabilir misin? (opsiyonel)', placeholder: 'Aklındaki çözüm fikrini paylaşabilirsin…' },
+  { id: 'problem',     label: '1. Problem / Fırsat nedir?',                                          placeholder: 'Çözülmesi gereken sorunu veya yakalanan fırsatı kısaca anlat…' },
+  { id: 'segment',     label: '2. Problemin sahibi hedef segment kimdir?',                            placeholder: 'Bu problemi yaşayan kullanıcı / müşteri segmenti…' },
+  { id: 'audience',    label: '3. Fırsat ile hizmet edilecek kitle nedir?',                           placeholder: 'Çözüm hayata geçtiğinde fayda sağlanacak kitle…' },
+  { id: 'solution',    label: '4. Çözüm önerin varsa yazabilir misin? (opsiyonel)',                  placeholder: 'Aklındaki çözüm fikrini paylaşabilirsin…' },
+  { id: 'involvement', label: '5. Projenin gelişme sürecine dahil olmak ister misin? (opsiyonel)',  placeholder: 'Örn: Evet, ürün tarafında destek olabilirim / Hayır, sadece fikir paylaşıyorum' },
 ];
+const OPTIONAL_PROBLEM_FIELDS = new Set(['solution', 'involvement']);
 
 function ProblemSubmissionModal({ stageId, onClose, role }) {
   const { dispatch, viewerToken } = useContext(Ctx);
-  const [vals, setVals] = useState({ problem: '', segment: '', audience: '', solution: '' });
+  const [vals, setVals] = useState({ problem: '', segment: '', audience: '', solution: '', involvement: '' });
   const [submittedBy, setSubmittedBy] = useState('');
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
@@ -2117,10 +2119,11 @@ function ProblemSubmissionModal({ stageId, onClose, role }) {
       title,
       tagline: '',
       problemFields: {
-        problem:  vals.problem.trim(),
-        segment:  vals.segment.trim(),
-        audience: vals.audience.trim(),
-        solution: vals.solution.trim(),
+        problem:     vals.problem.trim(),
+        segment:     vals.segment.trim(),
+        audience:    vals.audience.trim(),
+        solution:    vals.solution.trim(),
+        involvement: vals.involvement.trim(),
       },
       submittedBy: submittedBy.trim() || (role === 'viewer' ? 'Viewer' : 'Admin'),
       submittedByToken: viewerToken,
@@ -2154,7 +2157,7 @@ function ProblemSubmissionModal({ stageId, onClose, role }) {
               Problemin Innovation pipeline'ına eklendi. Innovation Board ekibi inceleyecek.
             </p>
             <div className="flex justify-center gap-2">
-              <button onClick={() => { setVals({ problem:'', segment:'', audience:'', solution:'' }); setSubmittedBy(''); setDone(false); }}
+              <button onClick={() => { setVals({ problem:'', segment:'', audience:'', solution:'', involvement:'' }); setSubmittedBy(''); setDone(false); }}
                 className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-sm font-medium hover:bg-slate-200">
                 Bir tane daha gönder
               </button>
@@ -3854,7 +3857,7 @@ function SubmitProblemPage() {
   const [authed, setAuthed]     = useState(false);
   const [pass, setPass]         = useState('');
   const [authErr, setAuthErr]   = useState('');
-  const [vals, setVals]         = useState({ problem:'', segment:'', audience:'', solution:'' });
+  const [vals, setVals]         = useState({ problem:'', segment:'', audience:'', solution:'', involvement:'' });
   const [submittedBy, setSubmittedBy] = useState('');
   const [err, setErr]           = useState('');
   const [saving, setSaving]     = useState(false);
@@ -3908,10 +3911,11 @@ function SubmitProblemPage() {
         createdAt: Date.now(), updatedAt: Date.now(),
         owner: '', tags: [], stageData: {}, canvases: [],
         problemFields: {
-          problem:  vals.problem.trim(),
-          segment:  vals.segment.trim(),
-          audience: vals.audience.trim(),
-          solution: vals.solution.trim(),
+          problem:     vals.problem.trim(),
+          segment:     vals.segment.trim(),
+          audience:    vals.audience.trim(),
+          solution:    vals.solution.trim(),
+          involvement: vals.involvement.trim(),
         },
         submittedBy: submittedBy.trim() || 'Anonim',
         submittedByToken: viewerToken,
@@ -4036,7 +4040,7 @@ function SubmitProblemPage() {
             Problemin Innovation pipeline'ına eklendi. Innovation Board ekibi inceleyecek.
           </p>
           <button onClick={() => {
-            setVals({ problem:'', segment:'', audience:'', solution:'' });
+            setVals({ problem:'', segment:'', audience:'', solution:'', involvement:'' });
             setSubmittedBy(''); setDone(false); setErr('');
           }}
             className="px-5 py-2.5 bg-experian-blue text-white rounded-xl text-sm font-semibold hover:bg-experian-blue/90">
