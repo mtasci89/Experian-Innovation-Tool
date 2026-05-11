@@ -3851,15 +3851,11 @@ function LoginScreen({ onLogin, authCfg }) {
   );
 }
 
-// ── Standalone public problem-submission page (#submit) ────────────────
-// Shareable link — anyone with the viewer (or admin) password can fill in
-// the 4-question form without entering the main app. Submission writes a
-// new card directly into Firebase under the Problem stage.
+// ── Standalone public problem-submission page (/new-idea) ─────────────
+// Shareable link — anyone who has the URL can fill in the form without
+// any login. Submission writes a new card directly into Firebase under
+// the Problem stage.
 function SubmitProblemPage() {
-  const [authCfg, setAuthCfg]   = useState(null);
-  const [authed, setAuthed]     = useState(false);
-  const [pass, setPass]         = useState('');
-  const [authErr, setAuthErr]   = useState('');
   const [vals, setVals]         = useState({ problem:'', segment:'', audience:'', solution:'', involvement:'' });
   const [submittedBy, setSubmittedBy] = useState('');
   const [err, setErr]           = useState('');
@@ -3875,24 +3871,6 @@ function SubmitProblemPage() {
       return t;
     } catch (e) { return 'v-fallback'; }
   });
-
-  useEffect(() => {
-    const ref = db.ref('authConfig');
-    const handler = ref.on('value', snap => setAuthCfg(snap.val() || null));
-    return () => ref.off('value', handler);
-  }, []);
-
-  const tryAuth = () => {
-    setAuthErr('');
-    const cfg = authCfg || {};
-    if (!pass) { setAuthErr('Lütfen şifreyi girin.'); return; }
-    if (pass === cfg.adminPass || pass === cfg.viewerPass) {
-      setAuthed(true);
-    } else {
-      setAuthErr('Hatalı şifre.');
-      setPass('');
-    }
-  };
 
   const submit = async () => {
     if (!vals.problem.trim()) { setErr('1. soru zorunlu — Problem / Fırsat nedir?'); return; }
@@ -3956,34 +3934,8 @@ function SubmitProblemPage() {
       <div aria-hidden="true" className="absolute top-12 right-56 w-16 h-16 rounded-2xl bg-experian-purple"></div>
       <div aria-hidden="true" className="absolute -bottom-24 -left-24 w-72 h-72 rounded-[3rem] bg-experian-purple/80"></div>
 
-      {/* Auth gate */}
-      {!authed && !done && (
-        <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 ring-1 ring-experian-blue/5">
-          {Brand}
-          <p className="text-sm text-slate-600 text-center mb-5">
-            Bu form Innovation Framework'e bir <span className="font-semibold text-experian-blue">Problem / Fırsat</span> göndermek içindir. Devam etmek için viewer şifresini gir.
-          </p>
-          <input
-            type="password" autoFocus value={pass}
-            onChange={e => setPass(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && tryAuth()}
-            placeholder="••••••••"
-            className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-experian-blue focus:ring-2 focus:ring-experian-blue/15 mb-3"
-          />
-          {authErr && (
-            <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-2.5 rounded-xl mb-3">
-              {authErr}
-            </div>
-          )}
-          <button onClick={tryAuth} disabled={!authCfg}
-            className="w-full py-3 bg-experian-blue text-white rounded-xl font-semibold hover:bg-experian-blue/90 transition-colors disabled:opacity-60">
-            {authCfg ? 'Devam' : 'Yükleniyor…'}
-          </button>
-        </div>
-      )}
-
-      {/* Form */}
-      {authed && !done && (
+      {/* Form (no password gate — link is the only credential) */}
+      {!done && (
         <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl ring-1 ring-experian-blue/5 overflow-hidden">
           <div className="bg-experian-blue px-6 py-5">
             <p className="text-[10px] font-bold tracking-[0.3em] text-experian-magenta uppercase">
