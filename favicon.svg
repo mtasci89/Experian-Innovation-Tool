@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Experian brand mark — 4 rounded squares from the deck. -->
+  <rect x="2"  y="2"  width="13" height="13" rx="3" fill="#77127B"/>
+  <rect x="17" y="2"  width="13" height="13" rx="3" fill="#426DA9"/>
+  <rect x="2"  y="17" width="13" height="13" rx="3" fill="#E80070"/>
+  <rect x="17" y="17" width="13" height="13" rx="3" fill="#C1188B"/>
+</svg>
