@@ -1,0 +1,9 @@
+{
+  "//": "Apply these in Firebase Console -> Realtime Database -> Rules.",
+  "//requires": "Authentication -> Sign-in method -> Anonymous must be enabled.",
+  "//caveat": "Anyone visiting the site becomes anon-authed, so this stops drive-by scraping but cannot keep app data secret from a determined user. Move to Firebase Auth + per-UID checks for stronger protection.",
+  "rules": {
+    ".read":  "auth != null",
+    ".write": "auth != null"
+  }
+}
