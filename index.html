@@ -129,14 +129,50 @@
   };
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
-  // Sign every visitor in anonymously so the RTDB security rules can
-  // require auth (.read/.write: auth != null). The Firebase SDK queues
-  // reads/writes until auth resolves, so we don't need to gate the UI.
-  // Errors are logged but non-blocking — the app still loads (it just
-  // won't be able to read/write until rules allow anon).
-  try {
-    firebase.auth().signInAnonymously().catch(e => console.warn('[anon-auth]', e?.message || e));
-  } catch (e) { console.warn('[anon-auth-init]', e); }
+
+  // ── Auth-aware write gate ────────────────────────────────────────────
+  // RTDB does NOT queue writes pending auth — if rules require auth and
+  // we write before signInAnonymously resolves, the write is rejected
+  // with permission_denied. We track auth state and:
+  //  (a) hold the latest pending state until auth lands, then flush
+  //  (b) surface every save error to the console + UI banner
+  window.__authReady = false;
+  window.__lastSaveError = null;
+  window.__saveErrListeners = new Set();
+  window.__onSaveStatus = (fn) => {
+    window.__saveErrListeners.add(fn);
+    fn(window.__lastSaveError);
+    return () => window.__saveErrListeners.delete(fn);
+  };
+  window.__setSaveError = (err) => {
+    window.__lastSaveError = err;
+    window.__saveErrListeners.forEach(fn => { try { fn(err); } catch {} });
+  };
+
+  // Pending state coalescing: only the most-recent state matters
+  window.__pendingState = null;
+  window.__flushPending = () => {
+    if (!window.__pendingState) return;
+    const s = window.__pendingState;
+    window.__pendingState = null;
+    saveState(s);
+  };
+
+  firebase.auth().onAuthStateChanged(user => {
+    if (user) {
+      window.__authReady = true;
+      console.info('[anon-auth] signed in', user.uid);
+      window.__flushPending();
+    } else {
+      window.__authReady = false;
+      firebase.auth().signInAnonymously().catch(e => {
+        const msg = 'Anonim oturum açılamadı: ' + (e?.message || e) +
+          ' — Firebase Console → Authentication → Sign-in method → Anonymous etkin olmalı.';
+        console.error('[anon-auth]', msg);
+        window.__setSaveError(new Error(msg));
+      });
+    }
+  });
 
   const DEFAULT_STAGES = [
     { id: 'problem',    name: 'Problem',      color: '#C1188B', order: 0 },
@@ -216,12 +252,23 @@
 
   const saveState = (s) => {
     const stamped = { ...s, updatedAt: Date.now() };
-    try { db.ref('appData').set(stamped); } catch (e) {}
-    // Append immutable snapshot to history so we can roll back
-    try {
-      db.ref('appData_history').push({ at: Date.now(), data: stamped });
-      pruneHistory();
-    } catch (e) {}
+    // If anon-auth hasn't landed yet, hold the write — RTDB does NOT
+    // queue past auth so an early .set() would just be rejected.
+    if (!window.__authReady) {
+      window.__pendingState = stamped;
+      console.info('[save] queued — auth not ready yet');
+    } else {
+      db.ref('appData').set(stamped)
+        .then(() => { if (window.__lastSaveError) window.__setSaveError(null); })
+        .catch(err => {
+          console.error('[save] appData write failed:', err?.message || err);
+          window.__setSaveError(err);
+        });
+      // Immutable history snapshot — best-effort, log but don't surface
+      db.ref('appData_history').push({ at: Date.now(), data: stamped })
+        .then(() => pruneHistory())
+        .catch(err => console.warn('[save] history push failed:', err?.message || err));
+    }
     // Daily rolling localStorage backup (keeps last 7 days)
     try {
       const today = new Date().toISOString().slice(0, 10);
@@ -2612,7 +2659,10 @@ function SettingsModal({ onClose, onLogout }) {
       securityA:  securityA  || authCfg.securityA  || '',
     };
     // Write to Firebase — syncs across all browsers
-    try { db.ref('authConfig').set(cfg); } catch (e) {}
+    db.ref('authConfig').set(cfg).catch(err => {
+      console.error('[save] authConfig write failed:', err?.message || err);
+      window.__setSaveError && window.__setSaveError(err);
+    });
     // Keep localStorage mirror for offline fallback
     saveAuthConfig(cfg);
     ctxSetAuthCfg && ctxSetAuthCfg(cfg);
@@ -2623,7 +2673,10 @@ function SettingsModal({ onClose, onLogout }) {
 
   const disableAuth = () => {
     const cfg = { enabled: false, adminPass: '', viewerPass: '', securityQ: '', securityA: '' };
-    try { db.ref('authConfig').set(cfg); } catch (e) {}
+    db.ref('authConfig').set(cfg).catch(err => {
+      console.error('[save] authConfig write failed:', err?.message || err);
+      window.__setSaveError && window.__setSaveError(err);
+    });
     saveAuthConfig(cfg);
     ctxSetAuthCfg && ctxSetAuthCfg(cfg);
     setAdminPass(''); setViewerPass(''); setSecurityQ(''); setSecurityA('');
@@ -3724,7 +3777,10 @@ function LoginScreen({ onLogin, authCfg }) {
     const ok = (cfg.securityA || '').trim().toLowerCase() === answer.trim().toLowerCase();
     if (!ok) { setRecoverErr('Güvenlik sorusu yanıtı hatalı.'); return; }
     const updated = { ...cfg, adminPass: newPass };
-    try { db.ref('authConfig').set(updated); } catch (e) {}
+    db.ref('authConfig').set(updated).catch(err => {
+      console.error('[save] authConfig write failed:', err?.message || err);
+      window.__setSaveError && window.__setSaveError(err);
+    });
     try { saveAuthConfig(updated); } catch (e) {}
     setRecoverMsg('Admin şifresi sıfırlandı. Giriş yapılıyor…');
     setTimeout(() => onLogin('admin'), 600);
@@ -4031,8 +4087,17 @@ function App() {
   const [dbLoading, setDbLoading]   = useState(true);
   const [authCfg, setAuthCfg]       = useState(null); // null = loading
   const [authChecked, setAuthChecked] = useState(false);
+  const [saveError, setSaveError]   = useState(null);
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  // Subscribe to global save-error events so the user sees write failures
+  // immediately instead of silently losing data.
+  useEffect(() => {
+    if (typeof window.__onSaveStatus !== 'function') return;
+    const unsub = window.__onSaveStatus(err => setSaveError(err));
+    return () => unsub && unsub();
+  }, []);
 
   // Firebase sync — appData
   useEffect(() => {
@@ -4060,12 +4125,15 @@ function App() {
             'İptal: boş başlat (yerel yedek kaybolmaz, gerekirse sonra elle import edilebilir)'
           );
           if (ok) {
-            db.ref('appData').set({ ...seed, updatedAt: Date.now() });
+            db.ref('appData').set({ ...seed, updatedAt: Date.now() })
+              .catch(err => { console.error('[seed] write failed:', err?.message || err); window.__setSaveError && window.__setSaveError(err); });
           } else {
-            db.ref('appData').set({ ...stateRef.current, updatedAt: Date.now() });
+            db.ref('appData').set({ ...stateRef.current, updatedAt: Date.now() })
+              .catch(err => { console.error('[seed] write failed:', err?.message || err); window.__setSaveError && window.__setSaveError(err); });
           }
         } else {
-          db.ref('appData').set({ ...stateRef.current, updatedAt: Date.now() });
+          db.ref('appData').set({ ...stateRef.current, updatedAt: Date.now() })
+            .catch(err => { console.error('[seed] write failed:', err?.message || err); window.__setSaveError && window.__setSaveError(err); });
         }
       }
       setDbLoading(false);
@@ -4152,6 +4220,17 @@ function App() {
 
   return (
     <Ctx.Provider value={{ state, dispatch, authCfg, setAuthCfg, role, viewerToken }}>
+      {saveError && (
+        <div className="bg-red-600 text-white text-sm px-6 py-2 sticky top-0 z-50 flex items-start gap-3">
+          <div className="font-bold flex-shrink-0">⚠ Değişiklikler kaydedilemiyor!</div>
+          <div className="flex-1 text-red-50 text-xs leading-relaxed">
+            {String(saveError.message || saveError)}
+            {' '}— Büyük olasılıkla Firebase Console → Authentication → Sign-in method'da{' '}
+            <b>Anonymous</b> etkin değil, veya Realtime Database kuralları yazma izni vermiyor.
+            Sorun çözülene kadar yeni girişleri kapatın.
+          </div>
+        </div>
+      )}
       {/* Top bar */}
       <div className="bg-white border-b-2 border-experian-blue/10 sticky top-0 z-40 shadow-sm">
         <div className="h-1 w-full bg-gradient-to-r from-experian-blue via-experian-purple to-experian-magenta"></div>
