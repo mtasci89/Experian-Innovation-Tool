@@ -2757,7 +2757,19 @@ function SettingsModal({ onClose, onLogout }) {
                   className="flex items-center gap-2 bg-white rounded-xl p-3 border border-slate-200 shadow-sm">
                   {editId === stage.id ? (
                     <div className="flex-1 space-y-2">
-                      <input value={editName} onChange={e => setEditName(e.target.value)}
+                      <input
+                        autoFocus
+                        value={editName}
+                        onChange={e => setEditName(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            dispatch({ type: 'UPDATE_STAGE', id: editId, updates: { name: editName, color: editColor } });
+                            setEditId(null);
+                          } else if (e.key === 'Escape') {
+                            e.stopPropagation(); // modalı kapatmasın, sadece düzenlemeyi iptal et
+                            setEditId(null);
+                          }
+                        }}
                         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-300" />
                       <ColorPicker value={editColor} onChange={setEditColor} />
                       <div className="flex gap-2">
@@ -4106,12 +4118,11 @@ function App() {
       const data = snapshot.val();
       if (data) {
         dispatch({ type: 'SYNC_FROM_FIREBASE', data });
-      } else {
-        // Firebase appData is empty/null — possible causes:
-        //  (a) genuinely first run, or
-        //  (b) data was wiped/lost.
-        // We NEVER auto-overwrite from a stale localStorage anymore — that's
-        // exactly the failure mode that ate previous cards. Ask first.
+        setDbLoading(false);
+      } else if (window.__authReady) {
+        // Auth is confirmed ready — null means Firebase is genuinely empty (first run or data wiped).
+        // Guard is critical: without it, a permission-denied read (auth not yet ready) would queue a
+        // DEFAULT-state seed write that executes once auth lands, silently overwriting real data.
         const local = localStorage.getItem(STORAGE_KEY);
         let seed = null;
         try { seed = local ? JSON.parse(local) : null; } catch (e) {}
@@ -4135,8 +4146,11 @@ function App() {
           db.ref('appData').set({ ...stateRef.current, updatedAt: Date.now() })
             .catch(err => { console.error('[seed] write failed:', err?.message || err); window.__setSaveError && window.__setSaveError(err); });
         }
+        setDbLoading(false);
       }
-      setDbLoading(false);
+      // If data is null and auth isn't ready yet: permission-denied pre-auth.
+      // Firebase re-triggers this listener automatically once anonymous auth establishes.
+      // Keep the loading screen — do NOT seed with defaults.
     });
     return () => ref.off('value', handler);
   }, []);
